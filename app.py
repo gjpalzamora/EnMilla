@@ -1,70 +1,83 @@
 import streamlit as st
 import pandas as pd
-import time
+import datetime
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Enmilla - Administración Logística", layout="wide")
+# --- CONFIGURACIÓN DE INTERFAZ ---
+st.set_page_config(page_title="Enmilla Pro - Gestión Logística", layout="wide")
 
-# --- INICIALIZACIÓN DE BASES DE DATOS (En memoria por ahora) ---
-if 'mensajeros' not in st.session_state:
-    st.session_state.mensajeros = pd.DataFrame(columns=["Nombre", "Vehículo", "Teléfono"])
-if 'clientes' not in st.session_state:
-    st.session_state.clientes = pd.DataFrame(columns=["Nombre/Empresa", "NIT", "Dirección"])
-if 'servicios' not in st.session_state:
-    st.session_state.servicios = pd.DataFrame(columns=["Servicio", "Cobro_Cliente", "Pago_Mensajero"])
-if 'operaciones' not in st.session_state:
-    st.session_state.operaciones = pd.DataFrame(columns=["Guía", "Mensajero", "Cliente", "Valor_Cobrado", "Valor_Pagado", "Fecha"])
+# --- INICIALIZACIÓN DE BASES DE DATOS (Persistencia temporal) ---
+if 'db_mensajeros' not in st.session_state:
+    st.session_state.db_mensajeros = pd.DataFrame(columns=["ID", "Nombre", "Placa", "Telefono"])
+if 'db_clientes' not in st.session_state:
+    st.session_state.db_clientes = pd.DataFrame(columns=["NIT", "Nombre", "Tarifa_Cliente", "Tarifa_Mensajero"])
+if 'db_despacho' not in st.session_state:
+    st.session_state.db_despacho = pd.DataFrame(columns=["Fecha", "Guia", "Mensajero", "Cliente", "Estado"])
 
-# --- SEGURIDAD: CONTROL DE ACCESO ---
-st.sidebar.title("🔐 Acceso al Sistema")
-rol = st.sidebar.radio("Selecciona tu Perfil", ["Operativo", "Administrador"])
+# --- BARRA LATERAL: NAVEGACIÓN ---
+st.sidebar.title("📦 ENMILLA OPS")
+rol = st.sidebar.radio("Nivel de Acceso", ["Operativo", "Administrador (Privado)"])
 
-password = ""
-if rol == "Administrador":
-    password = st.sidebar.text_input("Contraseña de Admin", type="password")
-
-# --- MENÚ DE NAVEGACIÓN ---
-st.sidebar.markdown("---")
-if rol == "Administrador" and password == "1234": # Cambia '1234' por tu clave
-    menu = st.sidebar.selectbox("Gestión Administrativa", ["Dashboard General", "Crear Mensajeros", "Crear Clientes/Servicios", "Liquidación de Mensajeros"])
+if rol == "Administrador (Privado)":
+    menu = st.sidebar.selectbox("Gestión de Maestros", ["Dashboard Financiero", "Registro de Mensajeros", "Registro de Clientes"])
+    password = st.sidebar.text_input("Clave de Seguridad", type="password")
 else:
-    menu = st.sidebar.selectbox("Módulo Operativo", ["Ingreso de Guías", "Estado de Entregas"])
-    if rol == "Administrador" and password != "":
-        st.sidebar.error("Contraseña Incorrecta")
+    menu = st.sidebar.selectbox("Operación Diaria", ["Despacho a Mensajero", "Ingreso de Bodega"])
 
-# --- ENCABEZADO ---
-st.markdown(f"""
-    <div style="background-color:#003366;padding:15px;border-radius:10px">
-    <h1 style="color:white;text-align:center;margin:0;">ENMILLA - Enlaces Soluciones Logística</h1>
-    <p style="color:white;text-align:center;margin:5px;">Gestión de Mensajería y Liquidación Profesional</p>
-    </div><br>
-    """, unsafe_allow_html=True)
+# --- CONTENIDO DE LOS MÓDULOS ---
 
-# --- LÓGICA DE MÓDULOS ADMINISTRATIVOS ---
-if rol == "Administrador" and password == "1234":
-    
-    if menu == "Crear Mensajeros":
-        st.header("👤 Registro de Nuevos Mensajeros")
-        with st.form("crear_mensajero"):
-            nombre = st.text_input("Nombre Completo")
-            vehiculo = st.text_input("Placa / Vehículo")
-            tel = st.text_input("Teléfono")
-            if st.form_submit_button("Guardar Mensajero"):
-                nuevo = pd.DataFrame([{"Nombre": nombre, "Vehículo": vehiculo, "Teléfono": tel}])
-                st.session_state.mensajeros = pd.concat([st.session_state.mensajeros, nuevo], ignore_index=True)
-                st.success(f"Mensajero {nombre} registrado.")
+# MÓDULO 1: CREAR MENSAJERO (Solo Admin)
+if menu == "Registro de Mensajeros" and rol == "Administrador (Privado)":
+    st.header("👤 Registro de Mensajeros (Recurso Humano)")
+    with st.form("form_mensajero", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        nom = col1.text_input("Nombre Completo")
+        ced = col2.text_input("Cédula/ID")
+        pla = col1.text_input("Placa del Vehículo")
+        tel = col2.text_input("Teléfono de Contacto")
+        
+        if st.form_submit_button("Guardar Mensajero"):
+            nuevo_m = pd.DataFrame([{"ID": ced, "Nombre": nom, "Placa": pla, "Telefono": tel}])
+            st.session_state.db_mensajeros = pd.concat([st.session_state.db_mensajeros, nuevo_m], ignore_index=True)
+            st.success(f"Mensajero {nom} vinculado exitosamente.")
 
-    elif menu == "Liquidación de Mensajeros":
-        st.header("💰 Panel de Liquidación y Rentabilidad")
-        st.info("Solo tú puedes ver los valores de cobro vs. pago.")
-        # Aquí se mostrará el resumen de lo que se le debe a cada uno y la ganancia de la empresa
-        st.dataframe(st.session_state.operaciones)
+# MÓDULO 2: CREAR CLIENTE (Solo Admin)
+elif menu == "Registro de Clientes" and rol == "Administrador (Privado)":
+    st.header("🏢 Registro de Clientes y Tarifas")
+    st.info("Define aquí los valores de liquidación. Estos NO son visibles para los mensajeros.")
+    with st.form("form_cliente", clear_on_submit=True):
+        c1, c2 = st.columns(2)
+        n_cli = c1.text_input("Nombre de la Empresa / Aliado")
+        nit_cli = c2.text_input("NIT")
+        v_cobro = c1.number_input("Valor a Cobrar al Cliente ($)", min_value=0)
+        v_pago = c2.number_input("Valor a Pagar al Mensajero ($)", min_value=0)
+        
+        if st.form_submit_button("Registrar Cliente"):
+            nuevo_c = pd.DataFrame([{"NIT": nit_cli, "Nombre": n_cli, "Tarifa_Cliente": v_cobro, "Tarifa_Mensajero": v_pago}])
+            st.session_state.db_clientes = pd.concat([st.session_state.db_clientes, nuevo_c], ignore_index=True)
+            st.success(f"Tarifario configurado para {n_cli}.")
 
-# --- LÓGICA DE MÓDULOS OPERATIVOS ---
-else:
-    if menu == "Ingreso de Guías":
-        st.header("📦 Registro de Operación Diaria")
-        # Aquí el equipo solo ingresa guías, sin ver precios de liquidación
-        st.write("Módulo para el equipo de despacho.")
+# MÓDULO 3: DESPACHO A MENSAJERO (Operativo)
+elif menu == "Despacho a Mensajero":
+    st.header("🛵 Despacho de Mercancía")
+    if st.session_state.db_mensajeros.empty or st.session_state.db_clientes.empty:
+        st.warning("⚠️ Primero debes registrar Clientes y Mensajeros en el módulo de Administrador.")
+    else:
+        with st.form("form_despacho"):
+            guia = st.text_input("Número de Guía (Escanea aquí)")
+            # Listas desplegables alimentadas por los módulos anteriores
+            mensajero_sel = st.selectbox("Seleccionar Mensajero", st.session_state.db_mensajeros["Nombre"])
+            cliente_sel = st.selectbox("Cliente Remitente", st.session_state.db_clientes["Nombre"])
+            
+            if st.form_submit_button("Confirmar Salida a Ruta"):
+                fecha_actual = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                despacho = pd.DataFrame([{
+                    "Fecha": fecha_actual, "Guia": guia, 
+                    "Mensajero": mensajero_sel, "Cliente": cliente_sel, "Estado": "En Ruta"
+                }])
+                st.session_state.db_despacho = pd.concat([st.session_state.db_despacho, despacho], ignore_index=True)
+                st.balloons()
+                st.success(f"Guía {guia} entregada a {mensajero_sel}.")
 
-st.sidebar.caption("Enlaces Soluciones Logística SAS | NIT: 901.939.284-4")
+# Vista de tablas para control
+if not st.session_state.db_despacho.empty:
+    st.subheader("📋 Registro Actual
