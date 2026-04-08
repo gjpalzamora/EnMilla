@@ -72,4 +72,62 @@ if rol == "Operativo" and menu == "Ingreso a Bodega":
             
             if tipo_cliente == "Mensajería Propia (Generar Guías)":
                 # Generamos consecutivo interno para cada fila
-                df_carga['
+                df_carga['Guia'] = [f"ENM-{random.randint(100000, 999999)}" for _ in range(len(df_carga))]
+                st.info("✅ Base cargada. Se han generado guías internas Enmilla.")
+            else:
+                # El archivo debe tener una columna 'Guia'
+                if 'Guia' not in df_carga.columns:
+                    st.error("❌ El archivo debe tener una columna llamada 'Guia' con el número de etiqueta del cliente.")
+                    st.stop()
+            
+            # Guardar en el inventario global
+            st.session_state.db_inventario = pd.concat([st.session_state.db_inventario, df_carga], ignore_index=True)
+            st.success(f"Éxito: {len(df_carga)} registros ingresados a bodega.")
+            st.dataframe(df_carga.head())
+            
+        except Exception as e:
+            st.error(f"Error al procesar el archivo: {e}")
+
+# --- MÓDULO: DESPACHO ---
+elif rol == "Operativo" and menu == "Despacho a Ruta":
+    st.header("🛵 Terminal de Salida")
+    if st.session_state.db_inventario.empty:
+        st.info("La bodega está vacía. Realice un ingreso de mercancía.")
+    else:
+        with st.form("cargue"):
+            m_sel = st.selectbox("Mensajero Responsable", st.session_state.db_mensajeros["Nombre"] if not st.session_state.db_mensajeros.empty else ["Cree mensajeros"])
+            guia_pistola = st.text_input("Pistolee la guía")
+            if st.form_submit_button("Cargar a Vehículo"):
+                if guia_pistola in st.session_state.db_inventario["Guia"].values:
+                    # Movimiento de inventario a despacho
+                    item = st.session_state.db_inventario[st.session_state.db_inventario["Guia"] == guia_pistola].iloc[0]
+                    n_d = pd.DataFrame([{"Fecha_Salida": datetime.datetime.now().strftime("%H:%M"), "Guia": guia_pistola, "Mensajero": m_sel, "Cliente": item["Cliente"], "Estado": "En Ruta"}])
+                    st.session_state.db_despacho = pd.concat([st.session_state.db_despacho, n_d], ignore_index=True)
+                    st.session_state.db_inventario = st.session_state.db_inventario[st.session_state.db_inventario["Guia"] != guia_pistola]
+                    st.success(f"Guía {guia_pistola} despachada.")
+                else:
+                    st.error("Guía no encontrada en bodega.")
+
+# --- MÓDULOS DE ADMINISTRADOR ---
+if rol == "Administrador" and password == "1234":
+    if menu == "Clientes y Tarifas":
+        st.subheader("Configuración de Tarifario")
+        with st.form("f_tarifas", clear_on_submit=True):
+            c = st.text_input("Nombre Cliente")
+            p = st.text_input("Producto (Ej: Sobre, Caja, Express)")
+            if st.form_submit_button("Guardar"):
+                st.session_state.db_tarifario = pd.concat([st.session_state.db_tarifario, pd.DataFrame([{"Cliente": c, "Producto": p}])], ignore_index=True)
+    
+    elif menu == "Mensajeros":
+        st.subheader("Maestro de Mensajeros")
+        with st.form("f_m", clear_on_submit=True):
+            n = st.text_input("Nombre")
+            p = st.text_input("Placa")
+            if st.form_submit_button("Vincular"):
+                st.session_state.db_mensajeros = pd.concat([st.session_state.db_mensajeros, pd.DataFrame([{"Nombre": n, "Placa": p}])], ignore_index=True)
+
+# --- VISUALIZACIÓN DE TABLAS ---
+st.markdown("---")
+st.subheader("📊 Control de Inventario en Tiempo Real")
+st.write("**Mercancía lista en bodega:**")
+st.dataframe(st.session_state.db_inventario, use_container_width=True)
