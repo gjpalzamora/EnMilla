@@ -2,105 +2,126 @@ import streamlit as st
 import pandas as pd
 import datetime
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Enmilla Pro - Terminal de Despacho", layout="wide")
+# --- CONFIGURACIÓN LEGAL Y DE MARCA ---
+st.set_page_config(page_title="Enmilla - Enlaces Logística", layout="wide")
 
-# --- BASES DE DATOS EN MEMORIA (Simulación de Inventario) ---
+# --- INICIALIZACIÓN DE BASES DE DATOS (Persistencia de Sesión) ---
 if 'db_mensajeros' not in st.session_state:
-    st.session_state.db_mens_df = pd.DataFrame(columns=["Nombre", "Placa", "ID"])
+    st.session_state.db_mensajeros = pd.DataFrame(columns=["ID", "Nombre", "Placa", "Telefono"])
+
 if 'db_tarifario' not in st.session_state:
-    st.session_state.db_tarifario = pd.DataFrame(columns=["Cliente", "Producto", "Cobro", "Pago"])
+    st.session_state.db_tarifario = pd.DataFrame(columns=["Cliente", "Producto", "Cobro_Cli", "Pago_Mens"])
+
 if 'db_despacho' not in st.session_state:
-    st.session_state.db_despacho = pd.DataFrame(columns=["Fecha", "Guia", "Mensajero", "Cliente", "Producto", "Estado"])
+    st.session_state.db_despacho = pd.DataFrame(columns=["Fecha", "Guia", "Cliente", "Producto", "Mensajero", "Estado"])
 
-# --- BARRA LATERAL ---
+# --- BARRA LATERAL (IDENTIDAD CORPORATIVA) ---
 with st.sidebar:
-    st.title("📦 ENMILLA OPS")
-    rol = st.radio("Acceso", ["Operativo", "Administrador"])
+    st.image("https://cdn-icons-png.flaticon.com/512/2312/2312214.png", width=100)
+    st.title("ENMILLA OPS")
+    st.markdown("**Enlaces Soluciones Logística SAS**")
+    st.caption("NIT: 901.939.284-4")
     st.markdown("---")
-    if rol == "Administrador":
-        pw = st.text_input("Clave", type="password")
-        menu = st.selectbox("Maestros", ["Configurar Clientes", "Ver Liquidación"])
-    else:
-        menu = st.selectbox("Operación", ["Despacho (Modo Pistola)", "Crear Mensajero"])
     
-    st.caption("Enlaces Soluciones Logística SAS")
+    rol = st.radio("Nivel de Acceso", ["Operativo", "Administrador"])
+    
+    if rol == "Administrador":
+        password = st.text_input("Contraseña de Admin", type="password")
+        menu = st.selectbox("Gestión de Maestros", ["Configuración de Clientes", "Liquidación y Reportes"])
+    else:
+        menu = st.selectbox("Operación Diaria", ["Despacho (Modo Pistola)", "Registro de Mensajeros"])
 
-# --- HEADER PROFESIONAL ---
-st.markdown("""
-    <div style="background-color:#003366;padding:10px;border-radius:5px;text-align:center;">
-        <h2 style="color:white;margin:0;">TERMINAL DE CARGUE Y DESPACHO</h2>
-    </div>
+# --- ENCABEZADO INSTITUCIONAL ---
+st.markdown(f"""
+    <div style="background-color:#003366;padding:15px;border-radius:10px;text-align:center;border-bottom: 5px solid #f1c40f;">
+        <h1 style="color:white;margin:0;">SISTEMA LOGÍSTICO ENMILLA</h1>
+        <p style="color:white;margin:5px;"><b>Propiedad de:</b> Enlaces Soluciones Logística SAS | NIT: 901.939.284-4 | Bogotá D.C.</p>
+    </div><br>
     """, unsafe_allow_html=True)
 
-# --- MÓDULO: CREAR MENSAJERO (OPERATIVO) ---
-if menu == "Crear Mensajero" and rol == "Operativo":
-    st.subheader("👤 Registro Rápido de Mensajeros")
-    with st.form("crear_m", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        n = col1.text_input("Nombre del Mensajero")
-        p = col2.text_input("Placa")
-        if st.form_submit_button("Registrar"):
-            if n:
-                nuevo = pd.DataFrame([{"Nombre": n, "Placa": p, "ID": "N/A"}])
-                st.session_state.db_mens_df = pd.concat([st.session_state.db_mens_df, nuevo], ignore_index=True)
-                st.success(f"Mensajero {n} listo para ruta.")
+# --- 1. MÓDULO: REGISTRO DE MENSAJEROS (Disponible para Operarios) ---
+if menu == "Registro de Mensajeros" or (rol == "Administrador" and password == "1234"):
+    st.header("👤 Maestro de Mensajeros")
+    with st.form("form_mens", clear_on_submit=True):
+        c1, c2 = st.columns(2)
+        nombre_m = c1.text_input("Nombre Completo del Mensajero")
+        cedula_m = c2.text_input("Cédula / ID")
+        placa_m = c1.text_input("Placa del Vehículo")
+        tel_m = c2.text_input("Teléfono de Contacto")
+        if st.form_submit_button("Registrar Mensajero"):
+            if nombre_m and cedula_m:
+                nuevo_m = pd.DataFrame([{"ID": cedula_m, "Nombre": nombre_m, "Placa": placa_m, "Telefono": tel_m}])
+                st.session_state.db_mensajeros = pd.concat([st.session_state.db_mensajeros, nuevo_m], ignore_index=True)
+                st.success(f"Mensajero {nombre_m} vinculado a la flota.")
+            else:
+                st.error("Nombre y Cédula son obligatorios.")
 
-# --- MÓDULO: DESPACHO MODO PISTOLA (OPERATIVO) ---
-elif menu == "Despacho (Modo Pistola)" and rol == "Operativo":
-    if st.session_state.db_mens_df.empty or st.session_state.db_tarifario.empty:
-        st.warning("⚠️ El Administrador debe configurar Clientes y registrar Mensajeros primero.")
-    else:
-        st.subheader("🛵 Cargue de Guías a Mensajero")
-        
-        # Selección Fija (Se queda estática para pistolear rápido)
-        c1, c2, c3 = st.columns(3)
-        m_sel = c1.selectbox("Mensajero que carga", st.session_state.db_mens_df["Nombre"])
-        cli_sel = c2.selectbox("Cliente Origen", st.session_state.db_tarifario["Cliente"].unique())
-        prods = st.session_state.db_tarifario[st.session_state.db_tarifario["Cliente"] == cli_sel]["Producto"]
-        p_sel = c3.selectbox("Producto/Servicio", prods)
+# --- 2. MÓDULO: CONFIGURACIÓN DE CLIENTES (Solo Admin) ---
+if rol == "Administrador" and password == "1234":
+    if menu == "Configuración de Clientes":
+        st.header("🏢 Tarifario Multiproducto")
+        with st.form("form_tarifas", clear_on_submit=True):
+            cliente = st.text_input("Nombre de la Empresa Cliente")
+            producto = st.text_input("Tipo de Producto / Servicio (Ej: Sobre, Caja, Express)")
+            col_a, col_b = st.columns(2)
+            c_cliente = col_a.number_input("Tarifa Cobro Cliente ($)", min_value=0, step=500)
+            p_mensajero = col_b.number_input("Tarifa Pago Mensajero ($)", min_value=0, step=500)
+            if st.form_submit_button("Guardar Configuración"):
+                if cliente and producto:
+                    nueva_t = pd.DataFrame([{"Cliente": cliente, "Producto": producto, "Cobro_Cli": c_cliente, "Pago_Mens": p_mensajero}])
+                    st.session_state.db_tarifario = pd.concat([st.session_state.db_tarifario, nueva_t], ignore_index=True)
+                    st.success(f"Tarifa {producto} para {cliente} guardada.")
 
-        st.markdown("---")
-        # Campo de entrada para la pistola (se limpia tras cada enter)
-        guia_input = st.text_input("💥 ESCANEE GUÍA AQUÍ (Pistolee)", key="pistola", help="Pistolee el código de barras y presione Enter")
+    elif menu == "Liquidación y Reportes":
+        st.header("💰 Panel de Control y Liquidación")
+        st.write("### Tarifas Activas")
+        st.dataframe(st.session_state.db_tarifario, use_container_width=True)
 
-        if guia_input:
-            # Lógica de carga al inventario del mensajero
-            fecha = datetime.datetime.now().strftime("%H:%M:%S")
-            n_despacho = pd.DataFrame([{
-                "Fecha": fecha,
-                "Guia": guia_input,
-                "Mensajero": m_sel,
-                "Cliente": cli_sel,
-                "Producto": p_sel,
-                "Estado": "Cargado en Vehículo"
-            }])
-            st.session_state.db_despacho = pd.concat([st.session_state.db_despacho, n_despacho], ignore_index=True)
-            st.toast(f"✅ Guía {guia_input} cargada a {m_sel}", icon="📦")
-
-# --- MÓDULO: ADMINISTRADOR ---
-if rol == "Administrador" and pw == "1234":
-    if menu == "Configurar Clientes":
-        st.subheader("🏢 Tarifario Multiproducto")
-        with st.form("f_tarifas", clear_on_submit=True):
-            c_nom = st.text_input("Nombre Cliente")
-            p_nom = st.text_input("Nombre Producto (Ej: Caja, Sobre)")
-            v1 = st.number_input("Cobro Cliente", min_value=0)
-            v2 = st.number_input("Pago Mensajero", min_value=0)
-            if st.form_submit_button("Guardar Tarifa"):
-                n_t = pd.DataFrame([{"Cliente": c_nom, "Producto": p_nom, "Cobro": v1, "Pago": v2}])
-                st.session_state.db_tarifario = pd.concat([st.session_state.db_tarifario, n_t], ignore_index=True)
-                st.success(f"Producto {p_nom} registrado para {c_nom}")
-
-# --- MONITOR DE DESPACHO (INVENTARIO EN TIEMPO REAL) ---
-st.markdown("---")
-st.subheader("📋 Resumen de Despacho Actual")
-if not st.session_state.db_despacho.empty:
-    # Mostramos los últimos 10 escaneos para control visual del operario
-    st.dataframe(st.session_state.db_despacho.tail(10), use_container_width=True)
+# --- 3. MÓDULO: DESPACHO PROFESIONAL (MODO PISTOLA) ---
+elif rol == "Operativo" and menu == "Despacho (Modo Pistola)":
+    st.header("🛵 Terminal de Salida a Ruta")
     
-    # Resumen rápido por mensajero
-    resumen = st.session_state.db_despacho.groupby("Mensajero").size().reset_index(name='Guías Cargadas')
+    if st.session_state.db_mensajeros.empty or st.session_state.db_tarifario.empty:
+        st.warning("⚠️ El sistema requiere que existan Mensajeros y Tarifas de Clientes configuradas.")
+    else:
+        # Selección de cabecera (se mantiene fija para el pistoleo)
+        col_m, col_c, col_p = st.columns(3)
+        mensajero_sel = col_m.selectbox("Asignar a Mensajero:", st.session_state.db_mensajeros["Nombre"])
+        cliente_lista = st.session_state.db_tarifario["Cliente"].unique()
+        cliente_sel = col_c.selectbox("Cliente Remitente:", cliente_lista)
+        
+        prods_filtrados = st.session_state.db_tarifario[st.session_state.db_tarifario["Cliente"] == cliente_sel]["Producto"]
+        producto_sel = col_p.selectbox("Tipo de Envío:", prods_filtrados)
+        
+        st.markdown("---")
+        # El campo de "Pistoleo"
+        guia_scan = st.text_input("💥 PISTOLEE CÓDIGO DE GUÍA AQUÍ", key="scanner", help="El cursor debe estar aquí para usar la pistola.")
+
+        if guia_scan:
+            ahora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            despacho_actual = pd.DataFrame([{
+                "Fecha": ahora,
+                "Guia": guia_scan,
+                "Cliente": cliente_sel,
+                "Producto": producto_sel,
+                "Mensajero": mensajero_sel,
+                "Estado": "En Ruta / Despachado"
+            }])
+            st.session_state.db_despacho = pd.concat([st.session_state.db_despacho, despacho_actual], ignore_index=True)
+            st.toast(f"📦 Guía {guia_scan} asignada a {mensajero_sel}", icon="✅")
+
+# --- TABLA DE MOVIMIENTOS (SIEMPRE AL FINAL) ---
+st.markdown("---")
+st.subheader("📋 Registro de Operaciones en Tiempo Real")
+if not st.session_state.db_despacho.empty:
+    st.dataframe(st.session_state.db_despacho.tail(20), use_container_width=True)
+    
+    # Resumen de carga por mensajero
+    st.write("### Guías cargadas por mensajero hoy:")
+    resumen = st.session_state.db_despacho.groupby("Mensajero").size().reset_index(name='Total Guías')
     st.table(resumen)
 else:
-    st.info("Esperando primer escaneo de guía...")
+    st.info("No hay despachos registrados aún. Inicie el pistoleo de guías.")
+
+if rol == "Administrador" and password != "" and password != "1234":
+    st.sidebar.error("Clave incorrecta")
