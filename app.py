@@ -6,11 +6,12 @@ import time
 st.set_page_config(page_title="Enmilla - Enlaces Logística", layout="wide")
 
 st.markdown(f"""
-    <div style="background-color:#003366;padding:10px;border-radius:10px">
-    <h1 style="color:white;text-align:center;">ENMILLA - Gestión Logística</h1>
-    <p style="color:white;text-align:center;">Propiedad de: <b>Enlaces Soluciones Logística SAS</b> | NIT: 901939284 | Bogotá D.C.</p>
+    <div style="background-color:#003366;padding:20px;border-radius:10px">
+    <h1 style="color:white;text-align:center;margin:0;">ENMILLA - Gestión Logística</h1>
+    <p style="color:white;text-align:center;margin:5px;">Propiedad de: <b>Enlaces Soluciones Logística SAS</b> | NIT: 901.939.284-4 | Bogotá D.C.</p>
     </div>
-    """, unsafe_allow_name_tags=True)
+    <br>
+    """, unsafe_allow_html=True)
 
 # --- BASE DE DATOS TEMPORAL ---
 if 'db' not in st.session_state:
@@ -28,10 +29,9 @@ if opcion == "Generar POD Interno":
         if st.form_submit_button("Generar Guía"):
             nuevo_id = f"ENM-{time.strftime('%H%M%S')}"
             st.success(f"Guía {nuevo_id} generada para {destino}")
-            # Aquí se guarda en la tabla
             nueva_data = {"ID": nuevo_id, "Cliente": cliente, "Destino": destino, "Estado": "Bodega", "Tipo": "Interna"}
             st.session_state.db = pd.concat([st.session_state.db, pd.DataFrame([nueva_data])], ignore_index=True)
 
 if opcion == "Dashboard":
     st.header("📊 Inventario en Tiempo Real")
-    st.table(st.session_state.db)
+    st.dataframe(st.session_state.db, use_container_width=True)
