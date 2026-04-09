@@ -88,3 +88,61 @@ if rol == "Operativo" and menu == "1. Ingreso a Bodega (Cargar Base)":
                     df_final = df_excel[columnas_finales]
                     
                     st.session_state.db_inventario = pd.concat([st.session_state.db_inventario, df_final], ignore_index=True)
+                    st.success(f"✅ ¡Éxito! {len(df_final)} guías de {cliente_sel} ingresadas a bodega.")
+                else:
+                    st.error(f"❌ Columnas no coinciden. Se esperan: {cols_requeridas}")
+            except Exception as e:
+                st.error(f"Error técnico: {e}")
+
+# --- MÓDULO: DESPACHO ---
+elif rol == "Operativo" and menu == "2. Despacho (Salida a Ruta)":
+    st.header("🛵 Terminal de Despacho")
+    if st.session_state.db_inventario.empty:
+        st.info("La bodega está vacía. Cargue una base primero.")
+    else:
+        m_sel = st.selectbox("Mensajero Responsable", st.session_state.db_mensajeros["Nombre"] if not st.session_state.db_mensajeros.empty else ["No hay mensajeros"])
+        guia_pistola = st.text_input("💥 PISTOLEE LA GUÍA AQUÍ")
+        
+        if guia_pistola:
+            # Buscar en el inventario cargado
+            match = st.session_state.db_inventario[st.session_state.db_inventario["Guia"] == guia_pistola]
+            
+            if not match.empty:
+                idx = match.index[0]
+                info = match.loc[idx]
+                
+                # Registrar salida
+                n_desp = pd.DataFrame([{
+                    "Fecha_Salida": datetime.datetime.now().strftime("%H:%M"),
+                    "Guia": guia_pistola,
+                    "Mensajero": m_sel,
+                    "Nombre Destinatario": info["Nombre Destinatario"],
+                    "Estado": "En Ruta"
+                }])
+                st.session_state.db_despacho = pd.concat([st.session_state.db_despacho, n_desp], ignore_index=True)
+                
+                # Eliminar de bodega (se resta del inventario disponible)
+                st.session_state.db_inventario = st.session_state.db_inventario.drop(idx)
+                st.toast(f"✅ Guía {guia_pistola} despachada.")
+            else:
+                st.error("Guía no encontrada en el inventario de bodega.")
+
+# --- ADMINISTRACIÓN ---
+if rol == "Administrador" and password == "1234":
+    if menu == "Clientes y Tarifas":
+        with st.form("fc"):
+            c = st.text_input("Nombre Cliente")
+            p = st.text_input("Producto/Servicio")
+            if st.form_submit_button("Registrar"):
+                st.session_state.db_tarifario = pd.concat([st.session_state.db_tarifario, pd.DataFrame([{"Cliente": c, "Producto": p}])], ignore_index=True)
+    elif menu == "Mensajeros":
+        with st.form("fm"):
+            n = st.text_input("Nombre")
+            p = st.text_input("Placa")
+            if st.form_submit_button("Vincular"):
+                st.session_state.db_mensajeros = pd.concat([st.session_state.db_mensajeros, pd.DataFrame([{"Nombre": n, "Placa": p}])], ignore_index=True)
+
+# --- MONITOR ---
+st.markdown("---")
+st.subheader("📋 Inventario Actual en Bodega")
+st.dataframe(st.session_state.db_inventario, use_container_width=True)
