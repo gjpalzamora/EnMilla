@@ -1,148 +1,114 @@
 import streamlit as st
 import pandas as pd
-import datetime
-import random
+from datetime import datetime
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Enmilla - Enlaces Logística", layout="wide")
+st.set_page_config(page_title="EnMilla - Logística 360", layout="wide")
 
-# --- INICIALIZACIÓN DE BASES DE DATOS ---
+# --- INICIALIZACIÓN DE BASES DE DATOS (STATE) ---
 if 'db_mensajeros' not in st.session_state:
-    st.session_state.db_mensajeros = pd.DataFrame(columns=["Nombre", "Placa"])
+    st.session_state.db_mensajeros = pd.DataFrame(columns=["Nombre", "Placa", "Telefono"])
+
 if 'db_tarifario' not in st.session_state:
-    st.session_state.db_tarifario = pd.DataFrame(columns=["Cliente", "Producto"])
+    # Añadimos Venta y Pago (Destajo)
+    st.session_state.db_tarifario = pd.DataFrame(columns=["Cliente", "Producto", "Tarifa_Venta", "Tarifa_Pago"])
+
 if 'db_inventario' not in st.session_state:
     st.session_state.db_inventario = pd.DataFrame(columns=[
-        "Fecha_Ingreso", "Guia", "Nombre Destinatario", "Direcion Destino", "Telefono", "Cliente", "Producto", "Estado"
+        "Fecha_Ingreso", "Guia", "Destinatario", "Direccion", "Cliente", "Producto", "Cobro_COD", "Estado"
     ])
-if 'db_despacho' not in st.session_state:
-    st.session_state.db_despacho = pd.DataFrame(columns=["Fecha_Salida", "Guia", "Mensajero", "Nombre Destinatario", "Estado"])
 
-# --- BARRA LATERAL ---
+if 'db_despacho' not in st.session_state:
+    st.session_state.db_despacho = pd.DataFrame(columns=["Fecha_Salida", "Guia", "Mensajero", "Estado"])
+
+# --- BARRA LATERAL (MENÚ) ---
 with st.sidebar:
     st.title("📦 ENMILLA OPS")
-    st.markdown("**Enlaces Soluciones Logística SAS**")
-    st.caption("NIT: 901.939.284-4")
-    st.markdown("---")
-    rol = st.radio("Acceso", ["Operativo", "Administrador"])
+    opcion = st.radio("Ir a:", [
+        "1. Configuración Tarifas", 
+        "2. Ingreso a Bodega (Escaneo)", 
+        "3. Despacho a Ruta", 
+        "4. Liquidación y Caja"
+    ])
+
+# --- MÓDULO 1: CONFIGURACIÓN DE TARIFAS ---
+if opcion == "1. Configuración Tarifas":
+    st.header("⚙️ Configuración de Clientes y Tarifas")
     
-    if rol == "Administrador":
-        password = st.text_input("Clave Admin", type="password")
-        menu = st.selectbox("Maestros", ["Clientes y Tarifas", "Mensajeros"])
-    else:
-        menu = st.selectbox("Operación", ["1. Ingreso a Bodega (Cargar Base)", "2. Despacho (Salida a Ruta)"])
+    with st.form("form_tarifas"):
+        col1, col2 = st.columns(2)
+        cliente = col1.text_input("Nombre del Cliente")
+        producto = col2.text_input("Tipo de Producto (ej. Sobre, Caja)")
+        t_venta = col1.number_input("Tarifa de Venta (Lo que cobras)", min_value=0)
+        t_pago = col2.number_input("Tarifa de Pago (Destajo Mensajero)", min_value=0)
+        
+        if st.form_submit_button("Guardar Tarifa"):
+            nueva_tarifa = {"Cliente": cliente, "Producto": producto, "Tarifa_Venta": t_venta, "Tarifa_Pago": t_pago}
+            st.session_state.db_tarifario = pd.concat([st.session_state.db_tarifario, pd.DataFrame([nueva_tarifa])], ignore_index=True)
+            st.success("Tarifa guardada")
 
-# --- ENCABEZADO ---
-st.markdown(f"""
-    <div style="background-color:#003366;padding:15px;border-radius:10px;text-align:center;border-bottom: 5px solid #f1c40f;">
-        <h1 style="color:white;margin:0;">SISTEMA LOGÍSTICO ENMILLA</h1>
-        <p style="color:white;margin:5px;">Propiedad de: Enlaces Soluciones Logística SAS | Bogotá D.C.</p>
-    </div><br>
-    """, unsafe_allow_html=True)
+    st.write("### Tarifario Actual")
+    st.table(st.session_state.db_tarifario)
 
-# --- MÓDULO: INGRESO A BODEGA ---
-if rol == "Operativo" and menu == "1. Ingreso a Bodega (Cargar Base)":
-    st.header("📥 Recepción y Carga de Base")
+# --- MÓDULO 2: INGRESO A BODEGA (ESCANEADO) ---
+elif opcion == "2. Ingreso a Bodega (Escaneo)":
+    st.header("📥 Recepción de Paquetes")
     
-    if st.session_state.db_tarifario.empty:
-        st.warning("⚠️ Primero el Administrador debe crear un Cliente y Producto.")
-    else:
-        c1, c2 = st.columns(2)
-        cliente_sel = c1.selectbox("¿De qué cliente es la mercancía?", st.session_state.db_tarifario["Cliente"].unique())
-        prods = st.session_state.db_tarifario[st.session_state.db_tarifario["Cliente"] == cliente_sel]["Producto"]
-        producto_sel = c2.selectbox("Seleccione el Producto", prods)
-
-        tipo_op = st.radio("Tipo de Operación", ["Cliente Externo (Ya trae Guía)", "Mensajería Propia (Generar Guía Interna)"])
-        
-        archivo = st.file_uploader("Subir Excel del Cliente", type=['xlsx', 'xls', 'csv'])
-        
-        if archivo and st.button("🚀 Procesar e Ingresar a Bodega"):
-            try:
-                # Lectura flexible para Excel o CSV
-                if archivo.name.endswith(('.xlsx', '.xls')):
-                    df_excel = pd.read_excel(archivo, engine='openpyxl')
-                else:
-                    df_excel = pd.read_csv(archivo)
-                
-                # Limpiar nombres de columnas (quitar espacios)
-                df_excel.columns = df_excel.columns.str.strip()
-                
-                # Columnas que detectamos en tu archivo
-                cols_requeridas = ["Nombre Destinatario", "Direcion Destino", "Telefono"]
-                
-                if all(col in df_excel.columns for col in cols_requeridas):
-                    df_excel['Fecha_Ingreso'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                    df_excel['Cliente'] = cliente_sel
-                    df_excel['Producto'] = producto_sel
-                    df_excel['Estado'] = "En Bodega"
-                    
-                    if tipo_op == "Mensajería Propia (Generar Guía Interna)":
-                        df_excel['Guia'] = [f"ENM-{random.randint(100000, 999999)}" for _ in range(len(df_excel))]
-                    else:
-                        if 'Guia' not in df_excel.columns:
-                            st.error("❌ El archivo no tiene la columna 'Guia' necesaria para este modo.")
-                            st.stop()
-                    
-                    # Consolidar solo las columnas necesarias
-                    columnas_finales = ["Fecha_Ingreso", "Guia", "Nombre Destinatario", "Direcion Destino", "Telefono", "Cliente", "Producto", "Estado"]
-                    df_final = df_excel[columnas_finales]
-                    
-                    st.session_state.db_inventario = pd.concat([st.session_state.db_inventario, df_final], ignore_index=True)
-                    st.success(f"✅ ¡Éxito! {len(df_final)} guías de {cliente_sel} ingresadas a bodega.")
-                else:
-                    st.error(f"❌ Columnas no coinciden. Se esperan: {cols_requeridas}")
-            except Exception as e:
-                st.error(f"Error técnico: {e}")
-
-# --- MÓDULO: DESPACHO ---
-elif rol == "Operativo" and menu == "2. Despacho (Salida a Ruta)":
-    st.header("🛵 Terminal de Despacho")
-    if st.session_state.db_inventario.empty:
-        st.info("La bodega está vacía. Cargue una base primero.")
-    else:
-        m_sel = st.selectbox("Mensajero Responsable", st.session_state.db_mensajeros["Nombre"] if not st.session_state.db_mensajeros.empty else ["No hay mensajeros"])
-        guia_pistola = st.text_input("💥 PISTOLEE LA GUÍA AQUÍ")
-        
-        if guia_pistola:
-            # Buscar en el inventario cargado
-            match = st.session_state.db_inventario[st.session_state.db_inventario["Guia"] == guia_pistola]
+    # Simulación de escáner
+    guia_input = st.text_input("Escanee el código de barras / Ingrese Guía", key="scan")
+    
+    if guia_input:
+        with st.expander("Detalles del Paquete Escaneado", expanded=True):
+            col1, col2 = st.columns(2)
+            cliente_sel = col1.selectbox("Cliente", st.session_state.db_tarifario["Cliente"].unique() if not st.session_state.db_tarifario.empty else ["Sin Clientes"])
+            prod_sel = col2.selectbox("Producto", st.session_state.db_tarifario[st.session_state.db_tarifario["Cliente"] == cliente_sel]["Producto"] if not st.session_state.db_tarifario.empty else ["Sin Productos"])
+            destinatario = col1.text_input("Nombre Destinatario")
+            direccion = col2.text_input("Dirección de Entrega")
+            cobro = st.number_input("Monto a Cobrar (COD) - 0 si es prepagado", min_value=0)
             
-            if not match.empty:
-                idx = match.index[0]
-                info = match.loc[idx]
-                
-                # Registrar salida
-                n_desp = pd.DataFrame([{
-                    "Fecha_Salida": datetime.datetime.now().strftime("%H:%M"),
-                    "Guia": guia_pistola,
-                    "Mensajero": m_sel,
-                    "Nombre Destinatario": info["Nombre Destinatario"],
-                    "Estado": "En Ruta"
-                }])
-                st.session_state.db_despacho = pd.concat([st.session_state.db_despacho, n_desp], ignore_index=True)
-                
-                # Eliminar de bodega (se resta del inventario disponible)
-                st.session_state.db_inventario = st.session_state.db_inventario.drop(idx)
-                st.toast(f"✅ Guía {guia_pistola} despachada.")
-            else:
-                st.error("Guía no encontrada en el inventario de bodega.")
+            if st.button("Confirmar Ingreso a Bodega"):
+                nuevo_pqt = {
+                    "Fecha_Ingreso": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "Guia": guia_input,
+                    "Destinatario": destinatario,
+                    "Direccion": direccion,
+                    "Cliente": cliente_sel,
+                    "Producto": prod_sel,
+                    "Cobro_COD": cobro,
+                    "Estado": "En Bodega"
+                }
+                st.session_state.db_inventario = pd.concat([st.session_state.db_inventario, pd.DataFrame([nuevo_pqt])], ignore_index=True)
+                st.success(f"Guía {guia_input} ingresada correctamente")
 
-# --- ADMINISTRACIÓN ---
-if rol == "Administrador" and password == "1234":
-    if menu == "Clientes y Tarifas":
-        with st.form("fc"):
-            c = st.text_input("Nombre Cliente")
-            p = st.text_input("Producto/Servicio")
-            if st.form_submit_button("Registrar"):
-                st.session_state.db_tarifario = pd.concat([st.session_state.db_tarifario, pd.DataFrame([{"Cliente": c, "Producto": p}])], ignore_index=True)
-    elif menu == "Mensajeros":
-        with st.form("fm"):
-            n = st.text_input("Nombre")
-            p = st.text_input("Placa")
-            if st.form_submit_button("Vincular"):
-                st.session_state.db_mensajeros = pd.concat([st.session_state.db_mensajeros, pd.DataFrame([{"Nombre": n, "Placa": p}])], ignore_index=True)
+    st.write("### Paquetes en Bodega")
+    st.dataframe(st.session_state.db_inventario)
 
-# --- MONITOR ---
-st.markdown("---")
-st.subheader("📋 Inventario Actual en Bodega")
-st.dataframe(st.session_state.db_inventario, use_container_width=True)
+# --- MÓDULO 4: LIQUIDACIÓN Y CAJA (EL ALGORITMO) ---
+elif opcion == "4. Liquidación y Caja":
+    st.header("💰 Liquidación de Cuentas")
+    
+    if st.session_state.db_inventario.empty:
+        st.warning("No hay datos para liquidar.")
+    else:
+        # Unimos inventario con tarifario para calcular dinero
+        df_final = pd.merge(
+            st.session_state.db_inventario, 
+            st.session_state.db_tarifario, 
+            on=["Cliente", "Producto"], 
+            how="left"
+        )
+        
+        col1, col2, col3 = st.columns(3)
+        total_venta = df_final["Tarifa_Venta"].sum()
+        total_pago = df_final["Tarifa_Pago"].sum()
+        total_recaudo = df_final["Cobro_COD"].sum()
+        
+        col1.metric("A Facturar (Ventas)", f"${total_venta:,.0f}")
+        col2.metric("A Pagar (Destajo)", f"${total_pago:,.0f}")
+        col3.metric("Recaudos (COD)", f"${total_recaudo:,.0f}")
+        
+        st.write("### Detalle de Rentabilidad")
+        df_final["Margen"] = df_final["Tarifa_Venta"] - df_final["Tarifa_Pago"]
+        st.dataframe(df_final[["Guia", "Cliente", "Tarifa_Venta", "Tarifa_Pago", "Margen", "Cobro_COD"]])
+        
+        st.info(f"Ganancia Bruta Estimada: ${df_final['Margen'].sum():,.0f}")
