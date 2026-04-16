@@ -1,101 +1,100 @@
 import streamlit as st
 import pandas as pd
 import datetime
+import re
+from fpdf import FPDF
 import streamlit.components.v1 as components
 
-# --- 1. CONFIGURACIÓN Y ESTADO (INALTERABLE) ---
-st.set_page_config(page_title="Enmilla - Enlaces Logística", layout="wide", page_icon="📦")
+# --- 1. CONFIGURACIÓN Y ESTADO DE SESIÓN ---
+st.set_page_config(page_title="Enmilla ERP", layout="wide", page_icon="📦")
 
-# Aseguramos la existencia de las tablas de datos
-for tabla, columnas in {
-    'db_inventario': ["Fecha", "Guia", "Nombre Destinatario", "Direccion", "Cliente", "Estado"],
-    'db_mensajeros': ["Nombre", "Vehiculo", "Telefono", "Fecha_Registro"],
-    'db_clientes': ["Nombre_Empresa", "NIT", "Ciudad", "Contacto"],
-    'db_productos': ["SKU/Referencia", "Descripcion", "Cliente_Asociado"]
+# Bases de datos temporales (En producción conectar a PostgreSQL)
+for key, cols in {
+    'db_inventario': ["Fecha", "Guia", "Cliente", "Estado"],
+    'db_mensajeros': ["Nombre", "Vehiculo", "ID"],
+    'db_clientes': ["Nombre", "Regex", "NIT"]
 }.items():
-    if tabla not in st.session_state:
-        st.session_state[tabla] = pd.DataFrame(columns=columnas)
+    if key not in st.session_state:
+        st.session_state[key] = pd.DataFrame(columns=cols)
 
-if 'iteracion' not in st.session_state: st.session_state.iteracion = 0
+if 'iteracion' not in st.session_state:
+    st.session_state.iteracion = 0
 
-# --- 2. SCRIPT DE ANCLAJE DE FOCO (SOLUCIÓN PISTOLA) ---
-def script_foco_agresivo(placeholder_target):
+# --- 2. MOTOR DE INTELIGENCIA LOGÍSTICA ---
+
+def identificar_cliente(guia):
+    """Identifica el cliente basado en patrones de texto (Regex)"""
+    for _, row in st.session_state.db_clientes.iterrows():
+        if re.match(row['Regex'], guia):
+            return row['Nombre']
+    return "Cliente Genérico / Desconocido"
+
+def script_foco_pistola(placeholder):
+    """Mantiene el cursor activo para escaneo continuo sin usar el mouse"""
     components.html(f"""
         <script>
-            const forzarFoco = () => {{
+            const focusInput = () => {{
                 const inputs = window.parent.document.querySelectorAll('input[type="text"]');
-                for (let input of inputs) {{
-                    if (input.getAttribute('placeholder') === '{placeholder_target}') {{
-                        if (window.parent.document.activeElement !== input) {{ input.focus(); }}
+                for (let i of inputs) {{
+                    if (i.getAttribute('placeholder') === '{placeholder}') {{
+                        if (window.parent.document.activeElement !== i) i.focus();
                         break;
                     }}
                 }}
             }};
-            forzarFoco();
-            const observer = new MutationObserver(forzarFoco);
-            observer.observe(window.parent.document.body, {{ childList: true, subtree: true }});
+            focusInput();
+            const obs = new MutationObserver(focusInput);
+            obs.observe(window.parent.document.body, {{childList: true, subtree: true}});
         </script>
     """, height=0)
 
-# --- 3. ENCABEZADO CORPORATIVO ---
-col_logo, col_titulo = st.columns([1, 5])
-with col_logo:
-    try: st.image("log fondo blancojpg.jpg", width=140)
-    except: st.write("📦 **ENMILLA**")
-with col_titulo:
-    st.markdown("## ENMILLA")
-    st.markdown("**Enlaces Soluciones Logísticas SAS** | NIT: 901.939.284-4")
+# --- 3. GENERADOR DE PDF (MEDIA CARTA) ---
 
-tabs = st.tabs(["📊 Panel", "📥 Recepción", "🛵 Despacho", "⚙️ Administración"])
+class PlanillaPDF(FPDF):
+    def header(self):
+        self.set_font('Arial', 'B', 12)
+        self.cell(0, 8, 'ENMILLA - ENLACES SOLUCIONES LOGÍSTICAS SAS', ln=True, align='C')
+        self.set_font('Arial', '', 8)
+        self.cell(0, 4, 'NIT: 901.939.284-4 | Planilla de Despacho 3PL', ln=True, align='C')
+        self.ln(5)
 
-# --- TAB 1, 2 y 3: (SE MANTIENEN CON LA LÓGICA DE FOCO Y DATOS ACTUAL) ---
-with tabs[0]: st.subheader("Vista General de Operación"); st.dataframe(st.session_state.db_inventario)
-with tabs[1]: 
-    st.subheader("Captura de Ingresos")
-    guia_in = st.text_input("ESCANEE UNIDAD", key=f"in_{st.session_state.iteracion}", placeholder="CAPTURA_BODEGA")
-    script_foco_agresivo("CAPTURA_BODEGA")
+def generar_pdf(mensajero, guias):
+    pdf = PlanillaPDF(format=(140, 216)) # Media Carta
+    pdf.add_page()
+    pdf.set_font('Arial', 'B', 9)
+    pdf.cell(0, 6, f"MENSAJERO: {mensajero} | FECHA: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True)
+    pdf.ln(4)
+    # Tabla
+    pdf.set_fill_color(240, 240, 240)
+    pdf.cell(10, 7, "#", 1, 0, 'C', True)
+    pdf.cell(50, 7, "Número de Guía", 1, 0, 'C', True)
+    pdf.cell(60, 7, "Firma de Recibido", 1, 1, 'C', True)
+    pdf.set_font('Arial', '', 8)
+    for i, g in enumerate(guias, 1):
+        pdf.cell(10, 7, str(i), 1)
+        pdf.cell(50, 7, g, 1)
+        pdf.cell(60, 7, "", 1, 1)
+    return pdf.output(dest='S').encode('latin-1')
+
+# --- 4. INTERFAZ DE USUARIO ---
+
+st.title("📦 Sistema Enmilla ERP")
+tabs = st.tabs(["📊 Dashboard", "📥 Recepción (Ingreso)", "🛵 Despacho (Salida)", "⚙️ Administración"])
+
+# MODULO: RECEPCIÓN
+with tabs[1]:
+    st.subheader("Ingreso de Mercancía por Escaneo")
+    guia_in = st.text_input("ESCANEAR UNIDAD", placeholder="INPUT_BODEGA", key=f"in_{st.session_state.iteracion}")
+    script_foco_pistola("INPUT_BODEGA")
+    
     if guia_in:
-        # Registro rápido...
-        st.session_state.iteracion += 1; st.rerun()
+        cliente = identificar_cliente(guia_in)
+        nuevo = pd.DataFrame([{"Fecha": datetime.datetime.now(), "Guia": guia_in, "Cliente": cliente, "Estado": "BODEGA"}])
+        st.session_state.db_inventario = pd.concat([st.session_state.db_inventario, nuevo], ignore_index=True)
+        st.session_state.iteracion += 1
+        st.toast(f"✅ Registrada: {guia_in} ({cliente})")
+        st.rerun()
 
-# --- 4. MÓDULO DE ADMINISTRACIÓN POTENCIADO ---
-with tabs[3]:
-    st.header("⚙️ Gestión Administrativa")
-    
-    # Sub-navegación interna para administración
-    sub_tabs = st.tabs(["👥 Mensajeros", "🏢 Clientes", "📦 Productos", "🛠️ Herramientas de Sistema"])
-    
-    # --- SUB-TAB: MENSAJEROS ---
-    with sub_tabs[0]:
-        st.subheader("Gestión de Personal de Ruta")
-        col_m1, col_m2 = st.columns([1, 2])
-        with col_m1:
-            with st.form("form_mensajero", clear_on_submit=True):
-                m_nom = st.text_input("Nombre Completo")
-                m_veh = st.selectbox("Vehículo", ["Moto", "Van", "Camión", "Bicicleta"])
-                m_tel = st.text_input("Teléfono de Contacto")
-                if st.form_submit_button("Registrar Mensajero"):
-                    nuevo_m = pd.DataFrame([{"Nombre": m_nom, "Vehiculo": m_veh, "Telefono": m_tel, "Fecha_Registro": datetime.date.today()}])
-                    st.session_state.db_mensajeros = pd.concat([st.session_state.db_mensajeros, nuevo_m], ignore_index=True)
-                    st.success(f"Mensajero {m_nom} registrado.")
-        with col_m2:
-            st.dataframe(st.session_state.db_mensajeros, use_container_width=True)
-
-    # --- SUB-TAB: CLIENTES ---
-    with sub_tabs[1]:
-        st.subheader("Maestro de Clientes")
-        with st.form("form_clientes", clear_on_submit=True):
-            c_col1, c_col2 = st.columns(2)
-            c_nom = c_col1.text_input("Nombre Empresa")
-            c_nit = c_col2.text_input("NIT / Identificación")
-            c_ciu = c_col1.text_input("Ciudad Principal", value="Bogotá")
-            c_con = c_col2.text_input("Persona de Contacto")
-            if st.form_submit_button("Guardar Cliente"):
-                nuevo_c = pd.DataFrame([{"Nombre_Empresa": c_nom, "NIT": c_nit, "Ciudad": c_ciu, "Contacto": c_con}])
-                st.session_state.db_clientes = pd.concat([st.session_state.db_clientes, nuevo_c], ignore_index=True)
-                st.success("Cliente vinculado satisfactoriamente.")
-        st.dataframe(st.session_state.db_clientes, use_container_width=True)
-
-    # --- SUB-TAB: PRODUCTOS ---
-    with sub_tabs[2]:
-        st.subheader
+# MODULO: DESPACHO
+with tabs[2]:
+    st.subheader("Asignación a Mensajeros")
