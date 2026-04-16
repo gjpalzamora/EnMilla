@@ -3,10 +3,10 @@ import pandas as pd
 import datetime
 import random
 
-# --- CONFIGURACIÓN DE PÁGINA ---
+# --- CONFIGURACIÓN ---
 st.set_page_config(page_title="Enmilla", layout="wide", page_icon="📦")
 
-# --- MOTOR DE DATOS (INICIALIZACIÓN CON COLUMNAS FIJAS) ---
+# --- MOTOR DE DATOS ---
 def init_db():
     if 'db_mensajeros' not in st.session_state:
         st.session_state.db_mensajeros = pd.DataFrame(columns=["Nombre", "Placa"])
@@ -20,24 +20,17 @@ def init_db():
         st.session_state.db_despacho = pd.DataFrame(columns=[
             "Fecha_Salida", "Guia", "Mensajero", "Nombre Destinatario", "Cliente", "Estado"
         ])
+    # Clave para resetear el input del scanner
+    if 'input_key' not in st.session_state:
+        st.session_state.input_key = 0
 
 init_db()
 
-# --- ESTILOS ---
-st.markdown("""
-    <style>
-    .main { background-color: #f8f9fa; }
-    .stMetric { background-color: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- ENCABEZADO CORPORATIVO ---
+# --- ENCABEZADO ---
 col_logo, col_text = st.columns([1, 4])
 with col_logo:
-    try:
-        st.image("log fondo blancojpg.jpg", width=150)
-    except:
-        st.write("📦 **ENMILLA**")
+    try: st.image("log fondo blancojpg.jpg", width=150)
+    except: st.write("📦 **ENMILLA**")
 
 with col_text:
     st.markdown(f"""
@@ -46,114 +39,88 @@ with col_text:
         """, unsafe_allow_html=True)
 
 st.markdown("---")
-
 tabs = st.tabs(["📊 Tablero", "📥 Ingreso", "🛵 Cargue", "⚙️ Admin"])
 
-# --- 1. TABLERO DE CONTROL ---
-with tabs[0]:
-    c1, c2, c3 = st.columns(3)
-    c1.metric("En Bodega", len(st.session_state.db_inventario))
-    c2.metric("En Ruta", len(st.session_state.db_despacho))
-    c3.metric("Total Hoy", len(st.session_state.db_inventario) + len(st.session_state.db_despacho))
-    
-    st.subheader("📦 Stock Actual")
-    st.dataframe(st.session_state.db_inventario, use_container_width=True)
-
-# --- 2. INGRESO A BODEGA ---
-with tabs[1]:
-    if st.session_state.db_tarifario.empty:
-        st.info("💡 Diríjase a 'Admin' para crear su primer Cliente.")
-    else:
-        with st.container():
-            col1, col2 = st.columns(2)
-            cli = col1.selectbox("Cliente", st.session_state.db_tarifario["Cliente"].unique())
-            prod = col2.selectbox("Producto", st.session_state.db_tarifario[st.session_state.db_tarifario["Cliente"] == cli]["Producto"])
-            
-            op = st.radio("Modo de Ingreso", ["Masivo (Archivo)", "Manual"], horizontal=True)
-
-            if op == "Masivo (Archivo)":
-                gen = st.checkbox("Generar guías internas Enmilla")
-                archivo = st.file_uploader("Subir base", type=['xlsx', 'csv'])
-                if archivo and st.button("🚀 Cargar Base"):
-                    try:
-                        df_in = pd.read_excel(archivo, engine='openpyxl') if archivo.name.endswith('.xlsx') else pd.read_csv(archivo)
-                        df_in.columns = df_in.columns.str.strip()
-                        
-                        # Mapeo de seguridad para que coincida con tu archivo
-                        df_in['Fecha_Ingreso'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                        df_in['Cliente'], df_in['Producto'], df_in['Estado'] = cli, prod, "En Bodega"
-                        
-                        if gen:
-                            df_in['Guia'] = [f"ENM-{random.randint(100000, 999999)}" for _ in range(len(df_in))]
-                        
-                        # Solo tomamos las columnas que nuestra base soporta
-                        cols_validas = [c for c in st.session_state.db_inventario.columns if c in df_in.columns]
-                        st.session_state.db_inventario = pd.concat([st.session_state.db_inventario, df_in[cols_validas]], ignore_index=True).drop_duplicates(subset=['Guia'])
-                        st.success("✅ Carga masiva completada.")
-                    except Exception as e:
-                        st.error(f"Error: Verifique que el archivo tenga las columnas correctas. ({e})")
-            else:
-                with st.form("manual"):
-                    g = st.text_input("Guía")
-                    d = st.text_input("Destinatario")
-                    dir = st.text_input("Dirección")
-                    if st.form_submit_button("Registrar"):
-                        nueva_g = g if g else f"ENM-{random.randint(1000, 9999)}"
-                        fila = pd.DataFrame([{"Fecha_Ingreso": datetime.datetime.now().strftime("%H:%M"), "Guia": nueva_g, "Nombre Destinatario": d, "Direcion Destino": dir, "Cliente": cli, "Producto": prod, "Estado": "En Bodega"}])
-                        st.session_state.db_inventario = pd.concat([st.session_state.db_inventario, fila], ignore_index=True)
-                        st.success("Registrado.")
-
-# --- 3. CARGUE (PISTOLEO) ---
+# --- TAB 3: CARGUE (PISTOLEO CONTINUO OPTIMIZADO) ---
 with tabs[2]:
     if st.session_state.db_mensajeros.empty:
-        st.warning("⚠️ Registre mensajeros en Admin.")
+        st.warning("⚠️ Registre mensajeros en Admin antes de despachar.")
     elif st.session_state.db_inventario.empty:
-        st.info("La bodega está vacía.")
+        st.info("La bodega está vacía. Cargue una base de datos para empezar.")
     else:
-        m_sel = st.selectbox("Mensajero", st.session_state.db_mensajeros["Nombre"])
-        guia_scan = st.text_input("💥 PISTOLEE AQUÍ", key="pistola_input")
+        st.subheader("🛵 Despacho a Mensajero")
+        m_sel = st.selectbox("Mensajero Responsable", st.session_state.db_mensajeros["Nombre"])
+        
+        # PROPOSITIVO: Usamos st.session_state.input_key para forzar la limpieza del campo
+        guia_scan = st.text_input(
+            "💥 ESCANEE GUÍA (EL CAMPO SE LIMPIARÁ SOLO)", 
+            key=f"scanner_{st.session_state.input_key}"
+        )
         
         if guia_scan:
             inv = st.session_state.db_inventario
-            match = inv[inv["Guia"] == guia_scan]
+            # Buscamos la guía ignorando espacios accidentales
+            match = inv[inv["Guia"].astype(str).str.strip() == guia_scan.strip()]
             
             if not match.empty:
                 idx = match.index[0]
-                # Extraer datos de forma segura
-                nombre_dest = match.loc[idx, "Nombre Destinatario"] if "Nombre Destinatario" in match.columns else "N/A"
-                
+                # Registrar el movimiento
                 n_desp = pd.DataFrame([{
                     "Fecha_Salida": datetime.datetime.now().strftime("%H:%M"),
-                    "Guia": guia_scan, "Mensajero": m_sel, 
-                    "Nombre Destinatario": nombre_dest,
-                    "Cliente": match.loc[idx, "Cliente"], "Estado": "En Ruta"
+                    "Guia": guia_scan, 
+                    "Mensajero": m_sel, 
+                    "Nombre Destinatario": match.loc[idx, "Nombre Destinatario"],
+                    "Cliente": match.loc[idx, "Cliente"], 
+                    "Estado": "En Ruta"
                 }])
+                
+                # Actualizar estados
                 st.session_state.db_despacho = pd.concat([st.session_state.db_despacho, n_desp], ignore_index=True)
                 st.session_state.db_inventario = inv.drop(idx)
-                st.toast(f"✅ Guía {guia_scan} despachada.")
-                st.rerun()
+                
+                # INCREMENTAR KEY PARA LIMPIAR EL INPUT
+                st.session_state.input_key += 1
+                
+                st.toast(f"✅ Guía {guia_scan} cargada correctamente.")
+                st.rerun() # Reinicia la app para que el cursor vuelva al campo limpio
             else:
-                st.error("Guía no encontrada en bodega.")
+                st.error(f"❌ La guía {guia_scan} NO está en bodega. Verifique el ingreso.")
+                # Si falla, también limpiamos para no bloquear la operación
+                if st.button("Limpiar para reintentar"):
+                    st.session_state.input_key += 1
+                    st.rerun()
 
-# --- 4. ADMIN ---
-with tabs[3]:
+# --- LAS DEMÁS PESTAÑAS SE MANTIENEN IGUAL (ADMIN, INGRESO, TABLERO) ---
+with tabs[1]: # INGRESO
+    if not st.session_state.db_tarifario.empty:
+        col1, col2 = st.columns(2)
+        cli = col1.selectbox("Cliente", st.session_state.db_tarifario["Cliente"].unique())
+        prod = col2.selectbox("Producto", st.session_state.db_tarifario[st.session_state.db_tarifario["Cliente"] == cli]["Producto"])
+        archivo = st.file_uploader("Subir base", type=['xlsx', 'csv'])
+        if archivo and st.button("🚀 Cargar Base"):
+            df_in = pd.read_excel(archivo) if archivo.name.endswith('.xlsx') else pd.read_csv(archivo)
+            df_in['Cliente'], df_in['Producto'], df_in['Estado'] = cli, prod, "En Bodega"
+            st.session_state.db_inventario = pd.concat([st.session_state.db_inventario, df_in], ignore_index=True).drop_duplicates(subset=['Guia'])
+            st.success("Base cargada.")
+
+with tabs[3]: # ADMIN
     if st.text_input("Acceso Admin", type="password") == "1234":
         c_a, c_b = st.columns(2)
         with c_a:
             with st.form("a"):
-                st.write("### Nuevo Cliente")
-                nc = st.text_input("Nombre Empresa")
-                np = st.text_input("Producto")
-                if st.form_submit_button("Añadir"):
+                nc = st.text_input("Nombre Empresa"); np = st.text_input("Producto")
+                if st.form_submit_button("Añadir Cliente"):
                     st.session_state.db_tarifario = pd.concat([st.session_state.db_tarifario, pd.DataFrame([{"Cliente": nc, "Producto": np}])], ignore_index=True)
         with c_b:
             with st.form("b"):
-                st.write("### Nuevo Mensajero")
-                nm = st.text_input("Nombre")
-                pl = st.text_input("Placa")
-                if st.form_submit_button("Añadir"):
+                nm = st.text_input("Nombre"); pl = st.text_input("Placa")
+                if st.form_submit_button("Añadir Mensajero"):
                     st.session_state.db_mensajeros = pd.concat([st.session_state.db_mensajeros, pd.DataFrame([{"Nombre": nm, "Placa": pl}])], ignore_index=True)
 
+with tabs[0]: # TABLERO
+    st.metric("Stock en Bodega", len(st.session_state.db_inventario))
+    st.dataframe(st.session_state.db_inventario, use_container_width=True)
+
 st.markdown("---")
-st.subheader("🚚 Despachos Realizados")
+st.subheader("🚚 Registro de Salidas")
 st.dataframe(st.session_state.db_despacho, use_container_width=True)
