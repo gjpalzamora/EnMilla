@@ -145,4 +145,22 @@ with tabs[2]:
 with tabs[3]:
     st.subheader("Gestión de Clientes")
     with st.form("form_clientes"):
-        c_nom = st.text_input("Nombre   
+        c_nom = st.text_input("Nombre de la Empresa / Cliente")
+        c_nit = st.text_input("NIT")
+        if st.form_submit_button("Registrar Cliente"):
+            nuevo_c = pd.DataFrame([{"Nombre_Empresa": c_nom, "NIT": c_nit, "Contacto": "N/A", "Ciudad": "Bogotá"}])
+            st.session_state.db_clientes = pd.concat([st.session_state.db_clientes, nuevo_c], ignore_index=True)
+            st.success("Cliente guardado.")
+    st.dataframe(st.session_state.db_clientes, use_container_width=True)
+
+# --- TAB: MENSAJEROS (RESTAURADO) ---
+with tabs[4]:
+    st.subheader("Gestión de Personal de Ruta")
+    with st.form("form_mensajeros"):
+        m_nom = st.text_input("Nombre Completo del Mensajero")
+        m_veh = st.selectbox("Tipo de Vehículo", ["Moto", "Van", "Camión"])
+        if st.form_submit_button("Registrar Mensajero"):
+            nuevo_m = pd.DataFrame([{"Nombre": m_nom, "Vehiculo": m_veh, "Fecha_Registro": datetime.date.today()}])
+            st.session_state.db_mensajeros = pd.concat([st.session_state.db_mensajeros, nuevo_m], ignore_index=True)
+            st.success("Mensajero registrado.")
+    st.dataframe(st.session_state.db_mensajeros, use_container_width=True)
