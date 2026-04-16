@@ -2,110 +2,140 @@ import streamlit as st
 import pandas as pd
 import datetime
 import re
-import io
 from fpdf import FPDF
 import streamlit.components.v1 as components
 
-# --- 1. CONFIGURACIÓN DE SEGURIDAD Y ESTADO ---
-st.set_page_config(page_title="Enmilla ERP v1.1", layout="wide", page_icon="📦")
+# --- 1. CONFIGURACIÓN INICIAL (EVITA PANTALLAS EN BLANCO) ---
+st.set_page_config(page_title="Enmilla ERP v1.2", layout="wide")
 
-def robust_init():
-    """Inicialización profunda para prevenir errores de 'KeyError'"""
-    config = {
-        'db_inventario': ["Fecha_Ingreso", "Guia", "Cliente", "Estado", "Ubicacion", "Peso"],
-        'db_mensajeros': ["Nombre", "Cedula", "Vehiculo", "Activo"],
-        'db_clientes': ["Nombre", "NIT", "Regex_Pattern"],
-        'db_log_movimientos': ["Timestamp", "Guia", "De_Estado", "A_Estado", "Responsable"]
+def inicializar_datos():
+    tablas = {
+        'db_inventario': ["Fecha", "Guia", "Cliente", "Estado"],
+        'db_mensajeros': ["Nombre", "Vehiculo"],
+        'db_clientes': ["Nombre", "Regex"]
     }
-    for tabla, columnas in config.items():
+    for tabla, columnas in tablas.items():
         if tabla not in st.session_state:
             st.session_state[tabla] = pd.DataFrame(columns=columnas)
-    
-    if 'scan_count' not in st.session_state:
-        st.session_state.scan_count = 0
+    if 'key_pistola' not in st.session_state:
+        st.session_state.key_pistola = 0
 
-robust_init()
+inicializar_datos()
 
-# --- 2. MOTOR LOGÍSTICO (REGLAS DE NEGOCIO) ---
+# --- 2. MOTOR LOGÍSTICO (CORRECCIÓN DE ERRORES) ---
 
-def registrar_movimiento(guia, de_est, a_est, responsable):
-    """Auditoría obligatoria de cada cambio de estado"""
-    nuevo_log = pd.DataFrame([{
-        "Timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "Guia": guia,
-        "De_Estado": de_est,
-        "A_Estado": a_est,
-        "Responsable": responsable
-    }])
-    st.session_state.db_log_movimientos = pd.concat([st.session_state.db_log_movimientos, nuevo_log], ignore_index=True)
-
-def motor_identificacion(guia):
-    """Regex dinámico para identificación 3PL"""
-    for _, cli in st.session_state.db_clientes.iterrows():
+def motor_regex(guia):
+    """Identifica cliente. Si no hay clientes configurados, devuelve 'Pendiente'"""
+    if st.session_state.db_clientes.empty:
+        return "CLIENTE NO CONFIGURADO"
+    for _, fila in st.session_state.db_clientes.iterrows():
         try:
-            if re.match(cli['Regex_Pattern'], guia, re.IGNORECASE):
-                return cli['Nombre']
+            if re.match(fila['Regex'], guia, re.IGNORECASE):
+                return fila['Nombre']
         except: continue
     return "DESCONOCIDO"
 
-def inyectar_foco_perpetuo(placeholder_id):
-    """Script para que la pistola siempre tenga donde escribir"""
+def inyectar_foco_corregido(placeholder_id):
+    """
+    CORRECCIÓN CRÍTICA: Se eliminó la dependencia de variables externas 
+    dentro del string de JS para evitar el error de la imagen anterior.
+    """
     components.html(f"""
         <script>
-            function setFocus() {{
-                const inputs = window.parent.document.querySelectorAll('input[type="text"]');
-                for (let i of inputs) {{
-                    if (i.getAttribute('placeholder') === '{placeholder_id}') {{
-                        if (window.parent.document.activeElement !== i) i.focus();
+            const forzarFoco = () => {{
+                const docs = window.parent.document;
+                const inputs = docs.querySelectorAll('input[type="text"]');
+                for (let x of inputs) {{
+                    if (x.getAttribute('placeholder') === '{placeholder_id}') {{
+                        if (docs.activeElement !== x) x.focus();
                         break;
                     }}
                 }}
-            }}
-            setInterval(setFocus, 400);
+            }};
+            setInterval(forzarFoco, 500);
         </script>
     """, height=0)
 
-# --- 3. DISEÑO DE PLANILLA LEGAL (PDF MEDIA CARTA) ---
+# --- 3. GENERADOR DE PDF (MEDIA CARTA - 140x216mm) ---
 
-class PlanillaLegal(FPDF):
-    def header(self):
-        # Datos según User Summary
-        self.set_font('Arial', 'B', 11)
-        self.cell(0, 7, 'ENLACES SOLUCIONES LOGÍSTICAS SAS', ln=True, align='C')
-        self.set_font('Arial', '', 8)
-        self.cell(0, 4, 'NIT: 901.939.284-4 | San Martin, Bogotá', ln=True, align='C')
-        self.ln(5)
-
-def crear_acta_entrega(mensajero, placa, guias):
-    pdf = PlanillaLegal(format=(140, 216)) # Formato Media Carta
+def generar_planilla_pdf(mensajero, guias):
+    pdf = FPDF(format=(140, 216))
     pdf.add_page()
-    pdf.set_font('Arial', 'B', 9)
-    pdf.cell(0, 6, f"PLANILLA N°: {datetime.datetime.now().strftime('%m%d%H%M')}", ln=True)
-    pdf.cell(0, 6, f"RESPONSABLE: {mensajero} | PLACA: {placa}", ln=True)
-    pdf.ln(3)
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, "ENLACES SOLUCIONES LOGISTICAS SAS", ln=True, align='C')
+    pdf.set_font("Arial", size=9)
+    pdf.cell(0, 5, f"Planilla de Despacho - {datetime.datetime.now().strftime('%Y-%m-%d')}", ln=True, align='C')
+    pdf.ln(5)
+    pdf.cell(0, 8, f"Responsable: {mensajero}", ln=True)
+    pdf.ln(2)
     
-    # Tabla con bordes reforzados
-    pdf.set_fill_color(230, 240, 255)
-    pdf.cell(10, 7, '#', 1, 0, 'C', True)
-    pdf.cell(50, 7, 'Guía de Transporte', 1, 0, 'C', True)
-    pdf.cell(60, 7, 'Firma / Novedad', 1, 1, 'C', True)
+    # Encabezados
+    pdf.set_fill_color(230, 230, 230)
+    pdf.cell(10, 8, "#", 1, 0, 'C', True)
+    pdf.cell(50, 8, "Guia / Tracking", 1, 0, 'C', True)
+    pdf.cell(60, 8, "Firma Recibido", 1, 1, 'C', True)
     
-    pdf.set_font('Arial', '', 8)
     for i, g in enumerate(guias, 1):
-        pdf.cell(10, 7, str(i), 1)
-        pdf.cell(50, 7, str(g), 1)
-        pdf.cell(60, 7, '', 1, 1)
+        pdf.cell(10, 8, str(i), 1)
+        pdf.cell(50, 8, str(g), 1)
+        pdf.cell(60, 8, "", 1, 1)
     
-    pdf.ln(8)
-    pdf.set_font('Arial', 'I', 7)
-    pdf.multi_cell(0, 4, "Nota: El mensajero declara recibir la mercancía en buen estado y se compromete a la entrega efectiva.")
     return pdf.output(dest='S').encode('latin-1')
 
 # --- 4. INTERFAZ OPERATIVA ---
 
-st.title("📦 ENMILLA ERP v1.1")
-menu = st.tabs(["📉 Monitor", "📥 Ingreso (Pistola)", "🛵 Despacho (Ruta)", "⚙️ Config"])
+st.title("📦 ENMILLA ERP - Control Logístico")
+tabs = st.tabs(["📥 Recepción", "🛵 Despacho", "⚙️ Configuración"])
 
-# TAB INGRESO: Blindado contra duplicados
-with menu[1]:
-    st
+with tabs[0]: # RECEPCIÓN
+    st.subheader("Ingreso de Mercancía (Pistola)")
+    # El placeholder debe coincidir EXACTAMENTE con el del script JS
+    input_guia = st.text_input("ESCANEAR", placeholder="SCAN_INPUT", key=f"p_{st.session_state.key_pistola}")
+    inyectar_foco_corregido("SCAN_INPUT")
+    
+    if input_guia:
+        guia = input_guia.strip().upper()
+        if guia in st.session_state.db_inventario['Guia'].values:
+            st.error(f"La guía {guia} ya fue ingresada.")
+        else:
+            cli = motor_regex(guia)
+            nuevo = pd.DataFrame([{"Fecha": datetime.datetime.now(), "Guia": guia, "Cliente": cli, "Estado": "BODEGA"}])
+            st.session_state.db_inventario = pd.concat([st.session_state.db_inventario, nuevo], ignore_index=True)
+            st.session_state.key_pistola += 1
+            st.toast(f"Registrado: {cli}")
+            st.rerun()
+
+with tabs[1]: # DESPACHO
+    st.subheader("Salida a Ruta")
+    if st.session_state.db_mensajeros.empty:
+        st.warning("Debe registrar mensajeros en Configuración.")
+    else:
+        mensajero = st.selectbox("Seleccione Mensajero", st.session_state.db_mensajeros['Nombre'])
+        guias_bodega = st.session_state.db_inventario[st.session_state.db_inventario['Estado'] == "BODEGA"]['Guia']
+        seleccion = st.multiselect("Guías para despacho", guias_bodega)
+        
+        if st.button("Generar Planilla y Despachar"):
+            if seleccion:
+                pdf_data = generar_planilla_pdf(mensajero, seleccion)
+                st.download_button("Descargar Planilla PDF", pdf_data, f"Ruta_{mensajero}.pdf")
+                st.session_state.db_inventario.loc[st.session_state.db_inventario['Guia'].isin(seleccion), 'Estado'] = "DESPACHADO"
+                st.success("Despacho procesado exitosamente.")
+            else:
+                st.error("Seleccione al menos una guía.")
+
+with tabs[2]: # CONFIG
+    st.subheader("Configuración Maestra")
+    c1, c2 = st.columns(2)
+    with c1:
+        with st.form("f_mens", clear_on_submit=True):
+            st.write("Registrar Mensajero")
+            n = st.text_input("Nombre"); v = st.text_input("Placa")
+            if st.form_submit_button("Guardar"):
+                st.session_state.db_mensajeros = pd.concat([st.session_state.db_mensajeros, pd.DataFrame([{"Nombre": n, "Vehiculo": v}])], ignore_index=True)
+                st.rerun()
+    with c2:
+        with st.form("f_cli", clear_on_submit=True):
+            st.write("Configurar Cliente Regex")
+            cn = st.text_input("Nombre Cliente (Ej: Amazon)"); cr = st.text_input("Regex (Ej: ^AMZ)")
+            if st.form_submit_button("Añadir"):
+                st.session_state.db_clientes = pd
