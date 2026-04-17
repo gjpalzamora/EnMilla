@@ -2,10 +2,11 @@ import streamlit as st
 import sys
 import os
 
-# Configuración de rutas para detectar la carpeta 'centro'
-sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+# ESTA LÍNEA ES LA SOLUCIÓN: Agrega el directorio actual al buscador de Python
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 try:
+    # Ahora el sistema encontrará 'centro' sin problemas
     from centro.database import engine, SessionLocal, Base
     from centro.models import Package, Movement, Courier
 except Exception as e:
@@ -14,17 +15,17 @@ except Exception as e:
 
 from datetime import datetime
 
-st.set_page_config(page_title="Enmilla ERP - Logística", layout="wide")
+# Configuración de la interfaz
+st.set_page_config(page_title="EnMilla ERP - Logística", layout="wide")
 
-# Creación automática de tablas
+# Crear tablas si no existen
 Base.metadata.create_all(bind=engine)
 
-st.sidebar.title("Enmilla ERP")
+st.sidebar.title("EnMilla ERP")
 menu = st.sidebar.radio("Módulos", ["Recepción", "Seguimiento", "Despacho", "Mensajeros"])
 
 db = SessionLocal()
 
-# --- MÓDULO DE RECEPCIÓN ---
 if menu == "Recepción":
     st.header("📦 Registro de Paquetes")
     with st.form("registro"):
@@ -34,19 +35,14 @@ if menu == "Recepción":
         address = st.text_area("Dirección")
         if st.form_submit_button("Registrar"):
             if t_num and sender and recipient and address:
-                exists = db.query(Package).filter(Package.tracking_number == t_num).first()
-                if exists:
-                    st.error("El número ya existe.")
-                else:
-                    new_pkg = Package(tracking_number=t_num, sender_name=sender, 
-                                    recipient_name=recipient, recipient_address=address)
-                    db.add(new_pkg)
-                    db.commit()
-                    st.success(f"Paquete {t_num} registrado.")
+                new_pkg = Package(tracking_number=t_num, sender_name=sender, 
+                                  recipient_name=recipient, recipient_address=address)
+                db.add(new_pkg)
+                db.commit()
+                st.success(f"Paquete {t_num} registrado.")
             else:
-                st.warning("Completa los campos obligatorios.")
+                st.warning("Faltan datos.")
 
-# --- MÓDULO DE SEGUIMIENTO ---
 elif menu == "Seguimiento":
     st.header("🔍 Seguimiento")
     search = st.text_input("Buscar Tracking")
@@ -58,7 +54,6 @@ elif menu == "Seguimiento":
         else:
             st.error("No encontrado.")
 
-# --- MÓDULO DE DESPACHO ---
 elif menu == "Despacho":
     st.header("🚚 Despacho")
     t_id = st.text_input("Tracking para entrega")
@@ -66,11 +61,9 @@ elif menu == "Despacho":
         pkg = db.query(Package).filter(Package.tracking_number == t_id).first()
         if pkg and st.button("Marcar Entregado"):
             pkg.status = "Entregado"
-            pkg.is_delivered = True
             db.commit()
             st.success("Paquete Entregado.")
 
-# --- MÓDULO DE MENSAJEROS ---
 elif menu == "Mensajeros":
     st.header("👤 Mensajeros")
     m_name = st.text_input("Nombre del Mensajero")
