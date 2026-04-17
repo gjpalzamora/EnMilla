@@ -2,27 +2,25 @@ import streamlit as st
 import sys
 import os
 
-# Fuerza al sistema a reconocer la carpeta 'centro'
+# Configuración de rutas para detectar la carpeta 'centro'
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
 try:
+    # Estas son las importaciones que fallaban en la línea 9
     from centro.database import engine, SessionLocal, Base
     from centro.models import Package, Movement, Courier
-    # from centro.pdf_service import generar_pod_pdf # Descomentar cuando el archivo esté listo
-except ModuleNotFoundError as e:
-    st.error(f"Error de configuración: No se pudo encontrar el módulo. {e}")
-    st.info("Asegúrate de que la carpeta se llame 'centro' y contenga un archivo __init__.py vacío.")
+except Exception as e:
+    st.error(f"Error crítico al cargar módulos: {e}")
     st.stop()
 
 from datetime import datetime
 
-# Configuración de la página según especificaciones [cite: 436, 461]
+# Configuración de interfaz según el Documento de Especificaciones [cite: 294, 433]
 st.set_page_config(page_title="Enmilla ERP - Logística", layout="wide")
 
-# Creación automática de tablas al inicio [cite: 305]
+# Inicialización de la base de datos [cite: 305]
 Base.metadata.create_all(bind=engine)
 
-# Menú lateral de navegación [cite: 433]
 st.sidebar.title("Enmilla ERP")
 menu = st.sidebar.radio("Módulos", ["Recepción", "Seguimiento", "Despacho", "Mensajeros"])
 
@@ -39,7 +37,6 @@ if menu == "Recepción":
         
         if st.form_submit_button("Registrar"):
             if t_number and sender and recipient and address:
-                # Validación de duplicados [cite: 374]
                 exists = db.query(Package).filter(Package.tracking_number == t_number).first()
                 if exists:
                     st.error("Error: El número de seguimiento ya existe.")
@@ -49,13 +46,13 @@ if menu == "Recepción":
                         sender_name=sender,
                         recipient_name=recipient,
                         recipient_address=address,
-                        status='Recibido' # Estado inicial por defecto [cite: 371]
+                        status='Recibido'
                     )
                     db.add(new_pkg)
                     db.commit()
                     st.success(f"Paquete {t_number} registrado con éxito.")
             else:
-                st.warning("Por favor complete todos los campos obligatorios.")
+                st.warning("Complete los campos obligatorios.")
 
 # --- MÓDULO DE SEGUIMIENTO [cite: 376] ---
 elif menu == "Seguimiento":
@@ -64,29 +61,26 @@ elif menu == "Seguimiento":
     if search_id:
         pkg = db.query(Package).filter(Package.tracking_number == search_id).first()
         if pkg:
-            st.write(f"**Estado Actual:** {pkg.status} [cite: 384]")
+            st.write(f"**Estado:** {pkg.status}")
             st.write(f"**Destinatario:** {pkg.recipient_name}")
-            st.write(f"**Dirección:** {pkg.recipient_address}")
-            
-            st.subheader("Historial de Movimientos [cite: 381]")
+            st.subheader("Historial")
             for mov in pkg.movements:
-                st.write(f"{mov.movement_time.strftime('%Y-%m-%d %H:%M')} - {mov.location}: {mov.description}")
+                st.write(f"{mov.movement_time.strftime('%Y-%m-%d')} - {mov.location}")
         else:
             st.error("Paquete no encontrado.")
 
 # --- MÓDULO DE DESPACHO [cite: 385] ---
 elif menu == "Despacho":
-    st.header("🚚 Gestión de Despacho y Entrega")
+    st.header("🚚 Gestión de Despacho")
     track_num = st.text_input("Número de Seguimiento para Entrega")
     if track_num:
         pkg = db.query(Package).filter(Package.tracking_number == track_num).first()
         if pkg:
-            st.info(f"Paquete seleccionado: {pkg.tracking_number}")
-            if st.button("Marcar como Entregado [cite: 391]"):
+            if st.button("Marcar como Entregado"):
                 pkg.status = "Entregado"
-                pkg.is_delivered = True # Actualiza bandera booleana [cite: 394]
+                pkg.is_delivered = True
                 db.commit()
-                st.success("Paquete entregado con éxito.")
+                st.success("Estado actualizado a Entregado.")
         else:
             st.error("Paquete no encontrado.")
 
@@ -94,15 +88,11 @@ elif menu == "Despacho":
 elif menu == "Mensajeros":
     st.header("👤 Gestión de Mensajeros")
     with st.form("nuevo_mensajero"):
-        m_name = st.text_input("Nombre Completo* [cite: 411]")
-        m_plate = st.text_input("Placa del Vehículo [cite: 413]")
-        if st.form_submit_button("Registrar Mensajero"):
+        m_name = st.text_input("Nombre Completo*")
+        if st.form_submit_button("Registrar"):
             if m_name:
-                new_courier = Courier(name=m_name, license_plate=m_plate)
-                db.add(new_courier)
+                db.add(Courier(name=m_name))
                 db.commit()
                 st.success(f"Mensajero {m_name} registrado.")
-            else:
-                st.error("El nombre es obligatorio.")
 
 db.close()
