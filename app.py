@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 
 # --- 1. CONFIGURACIÓN DE BASE DE DATOS ---
-DATABASE_URL = "sqlite:///enmilla_final_erp.db"
+DATABASE_URL = "sqlite:///enmilla_v4_final.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -14,39 +14,39 @@ Base = declarative_base()
 # --- 2. MODELOS DE DATOS ---
 class ClientB2B(Base):
     __tablename__ = "clients_b2b"
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), unique=True, nullable=False)
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255), unique=True)
     nit = Column(String(50), unique=True)
     products = relationship("Product", back_populates="client")
     packages = relationship("Package", back_populates="client")
 
 class Product(Base):
     __tablename__ = "products"
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255))
     client_id = Column(Integer, ForeignKey("clients_b2b.id"))
     client = relationship("ClientB2B", back_populates="products")
 
 class Courier(Base):
     __tablename__ = "couriers"
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255))
     plate = Column(String(50), unique=True)
     is_active = Column(Boolean, default=True)
     movements = relationship("Movement", back_populates="courier")
 
 class Package(Base):
     __tablename__ = "packages"
-    id = Column(Integer, primary_key=True, index=True)
-    tracking_number = Column(String(100), unique=True, index=True)
-    client_id = Column(Integer, ForeignKey("clients_b2b.id"), nullable=True)
+    id = Column(Integer, primary_key=True)
+    tracking_number = Column(String(100), unique=True)
+    client_id = Column(Integer, ForeignKey("clients_b2b.id"))
     status = Column(String(50), default="En Bodega")
     client = relationship("ClientB2B", back_populates="packages")
     movements = relationship("Movement", back_populates="package")
 
 class Movement(Base):
     __tablename__ = "movements"
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     package_id = Column(Integer, ForeignKey("packages.id"))
     courier_id = Column(Integer, ForeignKey("couriers.id"), nullable=True)
     location = Column(String(255))
@@ -57,44 +57,42 @@ class Movement(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# --- 3. INTERFAZ STREAMLIT ---
-st.set_page_config(page_title="EnMilla ERP", layout="wide")
+# --- 3. INTERFAZ ---
+st.set_page_config(page_title="EnMilla ERP v4.0", layout="wide")
 st.sidebar.title("🚚 Panel Enmilla")
-modulo = st.sidebar.radio("Ir a:", ["1. Administración", "2. Operaciones (Recibir)", "3. Despacho (Cargar)", "4. Gestión de Datos"])
+modulo = st.sidebar.radio("Ir a:", ["1. Administración", "2. Operaciones (Recibir)", "3. Despacho (Cargar)", "4. Edición y Gestión"])
 
 # --- MÓDULO 1: ADMINISTRACIÓN ---
 if modulo == "1. Administración":
-    st.header("Gestión de Maestros")
+    st.header("Creación de Maestros")
     t1, t2, t3 = st.tabs(["Clientes B2B", "Mensajeros", "Productos"])
     
     with t1:
         with st.form("f_cli", clear_on_submit=True):
-            n = st.text_input("Nombre Empresa")
+            n = st.text_input("Nombre Empresa").upper()
             nit = st.text_input("NIT")
             if st.form_submit_button("Guardar Cliente"):
                 db = SessionLocal()
                 try:
                     db.add(ClientB2B(name=n, nit=nit))
                     db.commit()
-                    st.success(f"Cliente {n} creado.")
+                    st.success(f"Cliente {n} registrado.")
                 except:
-                    db.rollback()
                     st.error("Error: NIT o Nombre ya existen.")
                 db.close()
 
     with t2:
         with st.form("f_cou", clear_on_submit=True):
-            cn = st.text_input("Nombre Mensajero")
-            cp = st.text_input("Placa")
+            cn = st.text_input("Nombre Mensajero").upper()
+            cp = st.text_input("Placa").upper()
             if st.form_submit_button("Guardar Mensajero"):
                 db = SessionLocal()
                 try:
                     db.add(Courier(name=cn, plate=cp))
                     db.commit()
-                    st.success(f"Mensajero {cn} registrado.")
+                    st.success("Mensajero creado.")
                 except:
-                    db.rollback()
-                    st.error("Error: Placa ya existe.")
+                    st.error("Error: Placa duplicada.")
                 db.close()
 
     with t3:
@@ -102,82 +100,18 @@ if modulo == "1. Administración":
         clis = db.query(ClientB2B).all()
         if clis:
             with st.form("f_prod", clear_on_submit=True):
-                pn = st.text_input("Nombre del Producto")
+                pn = st.text_input("Nombre del Producto (Alfanumérico)").upper()
                 c_sel = st.selectbox("Asociar a Cliente", [c.name for c in clis])
                 if st.form_submit_button("Enlazar Producto"):
                     target = db.query(ClientB2B).filter(ClientB2B.name == c_sel).first()
                     db.add(Product(name=pn, client_id=target.id))
                     db.commit()
-                    st.success("Producto enlazado.")
-        else: st.info("Cree un cliente primero.")
+                    st.success(f"Producto {pn} enlazado.")
         db.close()
 
-# --- MÓDULO 2: OPERACIONES (RECEPCIÓN AUTOMÁTICA) ---
+# --- MÓDULO 2: OPERACIONES (RECEPCIÓN AUTO) ---
 elif modulo == "2. Operaciones (Recibir)":
-    st.header("Entrada Automática (Scanner)")
+    st.header("Entrada Automática")
     db = SessionLocal()
-    clientes = db.query(ClientB2B).all()
-    
-    if not clientes:
-        st.warning("Debe crear un cliente en Administración.")
-    else:
-        c_nom = st.selectbox("Seleccione Cliente B2B", [c.name for c in clientes])
-        cli_obj = db.query(ClientB2B).filter(ClientB2B.name == c_nom).first()
-        prods = db.query(Product).filter(Product.client_id == cli_obj.id).all()
-        p_nom = st.selectbox("Producto", [p.name for p in prods] if prods else ["Genérico"])
-
-        def procesar_entrada():
-            guia = st.session_state.barcode_in.strip()
-            if guia:
-                db_sub = SessionLocal()
-                existe = db_sub.query(Package).filter(Package.tracking_number == guia).first()
-                if not existe:
-                    nuevo = Package(tracking_number=guia, client_id=cli_obj.id)
-                    db_sub.add(nuevo); db_sub.commit()
-                    db_sub.add(Movement(package_id=nuevo.id, location="Bodega", description=f"Recibido - {p_nom}"))
-                    db_sub.commit()
-                    st.toast(f"✅ {guia} Recibido", icon="📦")
-                else: st.warning(f"La guía {guia} ya existe en sistema.")
-                db_sub.close()
-                st.session_state.barcode_in = ""
-
-        st.text_input("ESCANEE AQUÍ", key="barcode_in", on_change=procesar_entrada)
-    db.close()
-
-# --- MÓDULO 3: DESPACHO ---
-elif modulo == "3. Despacho (Cargar)":
-    st.header("Salida a Ruta")
-    db = SessionLocal()
-    mens = db.query(Courier).filter(Courier.is_active == True).all()
-    if not mens:
-        st.warning("Cree un mensajero en Administración.")
-    else:
-        m_sel = st.selectbox("Seleccione Mensajero", [m.name for m in mens])
-        m_obj = db.query(Courier).filter(Courier.name == m_sel).first()
-        
-        def procesar_salida():
-            guia_out = st.session_state.barcode_out.strip()
-            if guia_out:
-                db_d = SessionLocal()
-                pkg = db_d.query(Package).filter(Package.tracking_number == guia_out).first()
-                if pkg:
-                    pkg.status = "En Ruta"
-                    db_d.add(Movement(package_id=pkg.id, courier_id=m_obj.id, location="En Ruta", description=f"Cargado a {m_sel}"))
-                    db_d.commit()
-                    st.toast(f"🚚 {guia_out} en ruta", icon="🚀")
-                else: st.error("Guía no encontrada.")
-                db_d.close()
-                st.session_state.barcode_out = ""
-
-        st.text_input("ESCANEE PARA SALIDA", key="barcode_out", on_change=procesar_salida)
-    db.close()
-
-# --- MÓDULO 4: GESTIÓN DE DATOS ---
-elif modulo == "4. Gestión de Datos":
-    st.header("Base de Datos")
-    db = SessionLocal()
-    st.subheader("Clientes")
-    st.dataframe(pd.DataFrame([{"Nombre": c.name, "NIT": c.nit} for c in db.query(ClientB2B).all()]))
-    st.subheader("Mensajeros")
-    st.dataframe(pd.DataFrame([{"Nombre": m.name, "Placa": m.plate} for m in db.query(Courier).all()]))
-    db.close()
+    clis = db.query(ClientB2B).all()
+    if clis
