@@ -124,10 +124,15 @@ st.set_page_config(page_title="EnMilla ERP v16", layout="wide")
 st.sidebar.title("🚚 Panel EnMilla")
 
 # Menú de navegación
-# Corrección: Se asegura que la cadena de texto para el módulo de administración esté correctamente cerrada.
+# Corrección: Se asegura que todas las opciones del radio button estén correctamente definidas como cadenas de texto.
 modulo = st.sidebar.radio("Ir a:", [
     "1. Administración (Maestros)",
     "2. Recepción (Bodega)",
     "3. Despacho (Ruta)",
     "4. Gestión de Cobros",
-    "5
+    "5. Reportes" # Asegurarse de que esta línea esté completa y correctamente cerrada
+])
+
+# --- MÓDULO 1: ADMINISTRACIÓN (MAESTROS) ---
+if modulo == "1. Administración (Maestros)":
+    st.header("Gestión
