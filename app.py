@@ -6,13 +6,12 @@ from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 
 # --- 1. CONFIGURACIÓN DE BASE DE DATOS ---
-DATABASE_URL = "sqlite:///enmilla_final_v3.db"
+DATABASE_URL = "sqlite:///enmilla_v3_estable.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- 2. MODELOS DE DATOS (ORDENADOS TÉCNICAMENTE) ---
-
+# --- 2. MODELOS DE DATOS ---
 class ClientB2B(Base):
     __tablename__ = "clients_b2b"
     id = Column(Integer, primary_key=True, index=True)
@@ -58,92 +57,15 @@ class Movement(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# --- 3. INTERFAZ OPERATIVA ---
+# --- 3. INTERFAZ ---
 st.set_page_config(page_title="EnMilla ERP v3.1", layout="wide")
 st.sidebar.title("🚚 Panel Enmilla")
-modulo = st.sidebar.radio("Ir a:", [
-    "1. Administración", 
-    "2. Operaciones (Recibir)", 
-    "3. Despacho (Cargar)", 
-    "4. Gestión de Datos"
-])
+modulo = st.sidebar.radio("Ir a:", ["1. Administración", "2. Operaciones (Recibir)", "3. Despacho (Cargar)", "4. Gestión de Datos"])
 
-# --- MÓDULO 1: ADMINISTRACIÓN ---
+# --- LÓGICA DE MÓDULOS ---
 if modulo == "1. Administración":
     st.header("Gestión de Maestros")
     t1, t2, t3 = st.tabs(["Clientes B2B", "Mensajeros", "Productos"])
-    
     with t1:
         with st.form("f_cli", clear_on_submit=True):
-            n = st.text_input("Nombre Empresa"); nit = st.text_input("NIT")
-            if st.form_submit_button("Guardar Cliente"):
-                db = SessionLocal()
-                try:
-                    db.add(ClientB2B(name=n, nit=nit))
-                    db.commit()
-                    st.success(f"Cliente {n} creado.")
-                except:
-                    db.rollback()
-                    st.error("Error: NIT o Nombre ya existen.")
-                db.close()
-
-    with t2:
-        with st.form("f_cou", clear_on_submit=True):
-            cn = st.text_input("Nombre Mensajero"); cp = st.text_input("Placa")
-            if st.form_submit_button("Guardar Mensajero"):
-                db = SessionLocal()
-                try:
-                    db.add(Courier(name=cn, plate=cp))
-                    db.commit()
-                    st.success("Mensajero registrado.")
-                except:
-                    db.rollback()
-                    st.error("Error: Placa ya existe.")
-                db.close()
-
-    with t3:
-        db = SessionLocal()
-        clis = db.query(ClientB2B).all()
-        if clis:
-            with st.form("f_prod", clear_on_submit=True):
-                pn = st.text_input("Nombre del Producto")
-                c_sel = st.selectbox("Asociar a Cliente", [c.name for c in clis])
-                if st.form_submit_button("Enlazar Producto"):
-                    target = db.query(ClientB2B).filter(ClientB2B.name == c_sel).first()
-                    db.add(Product(name=pn, client_id=target.id))
-                    db.commit()
-                    st.success(f"Producto {pn} enlazado a {c_sel}")
-        else:
-            st.warning("Debe crear un cliente antes de agregar productos.")
-        db.close()
-
-# --- MÓDULO 2: OPERACIONES (RECEPCIÓN AUTOMÁTICA) ---
-elif modulo == "2. Operaciones (Recibir)":
-    st.header("Entrada Automática (Muelle)")
-    db = SessionLocal()
-    clientes = db.query(ClientB2B).all()
-    
-    if not clientes:
-        st.warning("⚠️ Primero cree un cliente en el Módulo de Administración.")
-    else:
-        c1, c2 = st.columns(2)
-        with c1:
-            c_nom = st.selectbox("Cliente B2B", [c.name for c in clientes])
-            cli_obj = db.query(ClientB2B).filter(ClientB2B.name == c_nom).first()
-        with c2:
-            prods = db.query(Product).filter(Product.client_id == cli_obj.id).all()
-            p_nom = st.selectbox("Producto", [p.name for p in prods] if prods else ["Genérico"])
-
-        def procesar_escaneo():
-            guia = st.session_state.barcode.strip()
-            if guia:
-                db_sub = SessionLocal()
-                existe = db_sub.query(Package).filter(Package.tracking_number == guia).first()
-                if not existe:
-                    p = Package(tracking_number=guia, client_id=cli_obj.id)
-                    db_sub.add(p)
-                    db_sub.commit()
-                    db_sub.add(Movement(
-                        package_id=p.id, 
-                        location="Bodega Barrios Unidos", 
-                        description=f
+            n = st.
