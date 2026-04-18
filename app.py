@@ -82,8 +82,8 @@ modulo = st.sidebar.radio("Ir a:", [
     "2. Recepción (Bodega)", 
     "3. Despacho (Ruta)", 
     "4. Entregas y Recaudos",
-    "5. Novedades y Devoluciones",
-    "6. Reportes y Control"
+    "5. Novedades",
+    "6. Reportes"
 ])
 
 # --- MÓDULO 1: ADMINISTRACIÓN ---
@@ -95,40 +95,53 @@ if modulo == "1. Administración":
         with st.form("f_cli", clear_on_submit=True):
             n = st.text_input("Nombre Empresa").upper()
             nit = st.text_input("NIT")
-            if st.form_submit_button("Crear"):
+            if st.form_submit_button("Crear Cliente"):
                 with Session() as db:
                     try:
                         db.add(ClientB2B(name=n, nit=nit))
                         db.commit()
                         st.success("✅ Guardado")
-                    except: st.error("❌ Error: Duplicado")
+                    except Exception as e:
+                        db.rollback()
+                        st.error(f"❌ Error: {e}")
 
     with t2:
         with st.form("f_cou", clear_on_submit=True):
-            cn = st.text_input("Nombre").upper()
+            cn = st.text_input("Nombre Mensajero").upper()
             cp = st.text_input("Placa").upper()
-            if st.form_submit_button("Registrar"):
+            if st.form_submit_button("Registrar Mensajero"):
                 with Session() as db:
                     try:
                         db.add(Courier(name=cn, plate=cp))
                         db.commit()
-                        st.success("✅ Mensajero registrado")
-                    except: st.error("❌ Placa duplicada")
+                        st.success("✅ Registrado")
+                    except Exception as e:
+                        db.rollback()
+                        st.error(f"❌ Error: {e}")
 
     with t3:
+        # ESTA ES LA FUNCIÓN QUE PEDISTE: CREAR PRODUCTO
         with Session() as db:
             clis = db.query(ClientB2B).all()
             if clis:
                 with st.form("f_prod", clear_on_submit=True):
-                    c_sel = st.selectbox("Cliente", [c.name for c in clis])
-                    p_n = st.text_input("Nombre Servicio").upper()
+                    c_sel = st.selectbox("Asociar a Cliente", [c.name for c in clis])
+                    p_n = st.text_input("Nombre del Servicio (Ej: Express)").upper()
                     c1, c2 = st.columns(2)
-                    p_c = c1.number_input("Precio Cliente", min_value=0.0)
-                    p_m = c2.number_input("Pago Mensajero", min_value=0.0)
+                    p_c = c1.number_input("Cobro al Cliente ($)", min_value=0.0)
+                    p_m = c2.number_input("Pago al Mensajero ($)", min_value=0.0)
                     if st.form_submit_button("Guardar Producto"):
                         target = db.query(ClientB2B).filter(ClientB2B.name == c_sel).first()
                         db.add(Product(name=p_n, client_id=target.id, price_to_client=p_c, cost_to_courier=p_m))
                         db.commit()
-                        st.success("✅ Producto creado")
+                        st.success(f"✅ Producto '{p_n}' creado para {c_sel}")
+            else:
+                st.warning("Primero debe crear un cliente en la pestaña de al lado.")
 
-# --- MÓDULO 2: RECEPCIÓN
+# --- MÓDULO 2: RECEPCIÓN ---
+elif modulo == "2. Recepción (Bodega)":
+    st.header("Entrada de Mercancía")
+    with Session() as db:
+        clis = db.query(ClientB2B).all()
+        if clis:
+            c_name = st.
