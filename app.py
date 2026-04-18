@@ -142,4 +142,7 @@ if modulo == "1. Administración (Maestros)":
         "Editar Clientes", "Editar Mensajeros", "Editar Productos"
     ])
 
-    # --- Submódulo:
+    # --- Submódulo: Registrar Nuevos ---
+    with tab_cli:
+        st.subheader("Registrar Nuevo Cliente B2B")
+        with st.form("form_cliente_registro
