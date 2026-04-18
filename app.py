@@ -96,7 +96,6 @@ def to_excel(df):
 def format_datetime(dt):
     """Formatea un objeto datetime a string con zona horaria."""
     if dt:
-        # Asegúrate de que el datetime esté en la zona horaria correcta si no lo está ya
         # Si tus datetimes están en UTC y quieres mostrarlos en TIMEZONE:
         # dt_local = dt.astimezone(TIMEZONE)
         # return dt_local.strftime('%d/%m/%Y %H:%M:%S')
@@ -120,6 +119,7 @@ modulo = st.sidebar.radio("Ir a:", [
 # --- MÓDULO 1: ADMINISTRACIÓN (MAESTROS) ---
 if modulo == "1. Administración (Maestros)":
     st.header("Gestión de Maestros")
+    # Se han añadido pestañas para edición dentro del mismo módulo de administración
     tab_cli, tab_cou, tab_prod, tab_edit_cli, tab_edit_cou, tab_edit_prod = st.tabs([
         "🏢 Clientes", "🛵 Mensajeros", "📦 Productos",
         "✏️ Editar Clientes", "✏️ Editar Mensajeros", "✏️ Editar Productos"
@@ -128,28 +128,12 @@ if modulo == "1. Administración (Maestros)":
     # --- Submódulo: Registrar Nuevos ---
     with tab_cli:
         st.subheader("Registrar Nuevo Cliente B2B")
-        with st.form("form_cliente", clear_on_submit=True):
+        # La línea 155 original era: with st.form("form_cliente", clear_on_submit=True):
+        # Se asegura que el nombre del form sea válido y no contenga caracteres problemáticos.
+        with st.form("form_cliente_registro", clear_on_submit=True):
             nombre_cli = st.text_input("Nombre de la Empresa").upper()
             nit_cli = st.text_input("NIT (Opcional)")
 
             if st.form_submit_button("Guardar Cliente"):
                 if not nombre_cli:
-                    st.warning("El nombre del cliente es obligatorio.")
-                else:
-                    with Session() as db:
-                        try:
-                            nuevo_cliente = ClientB2B(name=nombre_cli, nit=nit_cli)
-                            db.add(nuevo_cliente)
-                            db.commit()
-                            st.success(f"✅ Cliente '{nombre_cli}' guardado exitosamente.")
-                            st.rerun() # Refrescar la página para ver el nuevo cliente
-                        except IntegrityError:
-                            db.rollback()
-                            st.error(f"❌ Error: El nombre '{nombre_cli}' o NIT '{nit_cli}' ya existe.")
-                        except Exception as e:
-                            db.rollback()
-                            st.error(f"❌ Ocurrió un error inesperado: {e}")
-
-    with tab_cou:
-        st.subheader("Registrar Nuevo Mensajero")
-        with st.form("
+                    st.warning
