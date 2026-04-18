@@ -341,4 +341,21 @@ def display_admin_module(db: Session):
         
         # Obtener lista de clientes para el selectbox
         clients_for_product = get_clients(db)
-        client_options = {c.}
+        # ... (código anterior) ...
+
+# Obtener la sesión de la base de datos
+db_session = Session() 
+
+# Obtener los clientes
+clients = get_clients(db_session) # Asegúrate de que get_clients esté definida y funcione
+
+# Crear el diccionario de opciones para el selectbox
+# ¡Esta es la línea que probablemente necesitas corregir!
+client_options = {c.id: c.name for c in clients} 
+
+# Ahora puedes usar client_options en tu st.selectbox
+selected_client_id = st.selectbox("Selecciona un Cliente B2B:", options=client_options.keys(), format_func=lambda x: client_options[x])
+
+# ... (resto de tu código) ...
+
+db_session.close() # No olvides cerrar la sesión
