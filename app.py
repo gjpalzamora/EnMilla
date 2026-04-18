@@ -6,12 +6,17 @@ from sqlalchemy.orm import sessionmaker, relationship, scoped_session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 import io
-import pytz # Para manejo de zonas horarias si es necesario
 
-# --- CONFIGURACIÓN GLOBAL ---
-# Configuración de la zona horaria (ajusta según tu necesidad)
-# Puedes usar 'UTC' o una zona horaria específica como 'America/Bogota'
-TIMEZONE = pytz.timezone('UTC') 
+# Intenta importar pytz. Si no está, maneja el error o informa al usuario.
+try:
+    import pytz
+    TIMEZONE = pytz.timezone('UTC') # Configuración de la zona horaria (ajusta según tu necesidad)
+    PYTZ_AVAILABLE = True
+except ImportError:
+    st.warning("La librería 'pytz' no está instalada. Las fechas se mostrarán en UTC. Instálala con: pip install pytz")
+    # Define una fecha ficticia o usa datetime.utcnow directamente si pytz no está disponible
+    TIMEZONE = None 
+    PYTZ_AVAILABLE = False
 
 # --- 1. CONFIGURACIÓN DE BASE DE DATOS ---
 DATABASE_URL = "sqlite:///enmilla_v16_final.db"
@@ -96,11 +101,22 @@ def to_excel(df):
 def format_datetime(dt):
     """Formatea un objeto datetime a string con zona horaria."""
     if dt:
-        # Si tus datetimes están en UTC y quieres mostrarlos en TIMEZONE:
-        # dt_local = dt.astimezone(TIMEZONE)
-        # return dt_local.strftime('%d/%m/%Y %H:%M:%S')
-        # Si solo quieres mostrarlo como está (asumiendo que ya está en la zona deseada o UTC):
-        return dt.strftime('%d/%m/%Y %H:%M:%S')
+        # Si pytz está disponible y la zona horaria está configurada
+        if PYTZ_AVAILABLE and TIMEZONE:
+            try:
+                # Intenta convertir a la zona horaria configurada si el datetime no tiene zona
+                if dt.tzinfo is None:
+                    dt_local = TIMEZONE.localize(dt)
+                else:
+                    dt_local = dt.astimezone(TIMEZONE)
+                return dt_local.strftime('%d/%m/%Y %H:%M:%S')
+            except Exception as e:
+                st.error(f"Error al formatear fecha con zona horaria: {e}")
+                # Si hay error, muestra la fecha sin zona horaria
+                return dt.strftime('%d/%m/%Y %H:%M:%S')
+        else:
+            # Si pytz no está disponible o no se configuró, muestra la fecha como está (probablemente UTC)
+            return dt.strftime('%d/%m/%Y %H:%M:%S')
     return "N/A"
 
 # --- 4. INTERFAZ PRINCIPAL ---
@@ -122,18 +138,4 @@ if modulo == "1. Administración (Maestros)":
     # Se han añadido pestañas para edición dentro del mismo módulo de administración
     tab_cli, tab_cou, tab_prod, tab_edit_cli, tab_edit_cou, tab_edit_prod = st.tabs([
         "🏢 Clientes", "🛵 Mensajeros", "📦 Productos",
-        "✏️ Editar Clientes", "✏️ Editar Mensajeros", "✏️ Editar Productos"
-    ])
-
-    # --- Submódulo: Registrar Nuevos ---
-    with tab_cli:
-        st.subheader("Registrar Nuevo Cliente B2B")
-        # La línea 155 original era: with st.form("form_cliente", clear_on_submit=True):
-        # Se asegura que el nombre del form sea válido y no contenga caracteres problemáticos.
-        with st.form("form_cliente_registro", clear_on_submit=True):
-            nombre_cli = st.text_input("Nombre de la Empresa").upper()
-            nit_cli = st.text_input("NIT (Opcional)")
-
-            if st.form_submit_button("Guardar Cliente"):
-                if not nombre_cli:
-                    st.warning
+        "✏️ Editar Clientes", "✏️
