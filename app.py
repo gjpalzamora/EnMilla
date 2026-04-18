@@ -139,4 +139,4 @@ if modulo == "1. Administración (Maestros)":
     # Corrección: Se eliminaron los emojis de las cadenas de texto de las pestañas para evitar errores de sintaxis.
     tab_cli, tab_cou, tab_prod, tab_edit_cli, tab_edit_cou, tab_edit_prod = st.tabs([
         "Clientes", "Mensajeros", "Productos",
-        "
+        "Editar Clientes", "Editar Mensaj
