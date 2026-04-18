@@ -3,84 +3,83 @@ from database import engine, SessionLocal, Base
 from models import Package, Courier
 from datetime import datetime
 
-# 1. CONFIGURACIÓN E INTERFAZ
-st.set_page_config(page_title="EnMilla ERP - Logística", layout="wide", page_icon="🚚")
+# CONFIGURACIÓN SEGÚN RF3.6 (Interfaz de Usuario)
+st.set_page_config(page_title="Enmilla ERP - Logística", layout="wide", page_icon="🚚")
 
-# Asegurar que las tablas existan en la base de datos
+# Inicialización de BD (Requisito 2.1)
 Base.metadata.create_all(bind=engine)
 
-# Estilo personalizado para el título
-st.markdown("# 🚚 EnMilla ERP")
-st.markdown("### Sistema de Gestión Logística - Enlaces Soluciones Logística SAS")
-st.sidebar.header("Control de Operaciones")
+st.title("🚚 Enmilla ERP")
+st.caption("Sistema de Gestión Logística - Enlace Soluciones Logísticas SAS")
 
-# 2. NAVEGACIÓN
-menu = st.sidebar.radio("Módulos", ["Recepción", "Seguimiento", "Despacho", "Mensajeros"])
+# Menú Lateral (RF3.6.1)
+menu = st.sidebar.radio("Navegación", ["Recepción", "Seguimiento", "Despacho", "Mensajeros"])
 
 db = SessionLocal()
 
-# --- MÓDULO 1: RECEPCIÓN ---
+# --- RF3.1: MÓDULO DE RECEPCIÓN ---
 if menu == "Recepción":
-    st.header("📦 Recepción de Mercancía")
-    with st.form("form_recepcion", clear_on_submit=True):
+    st.header("📦 Registro de Paquetes")
+    with st.form("registro_paquete", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
-            tracking = st.text_input("Número de Guía (Tracking)*")
-            destinatario = st.text_input("Nombre del Cliente/Destinatario*")
+            tracking = st.text_input("Número de Seguimiento (Único)*") # RF3.1.1
+            remitente = st.text_input("Nombre del Remitente*")
         with col2:
+            destinatario = st.text_input("Nombre del Destinatario*")
             direccion = st.text_input("Dirección de Entrega*")
-            notas = st.text_area("Observaciones del paquete")
         
         if st.form_submit_button("Registrar Ingreso"):
-            if tracking and destinatario:
-                nuevo_pkg = Package(
-                    tracking_number=tracking, 
+            # Validación de Duplicados (RF3.1.2)
+            existe = db.query(Package).filter(Package.tracking_number == tracking).first()
+            if existe:
+                st.error(f"Error: El número de seguimiento {tracking} ya existe.")
+            elif tracking and destinatario:
+                nuevo = Package(
+                    tracking_number=tracking,
+                    sender_name=remitente,
                     recipient_name=destinatario,
                     recipient_address=direccion,
-                    status="En Bodega"
+                    status="Recibido" # Estado Inicial RF3.1.1
                 )
-                db.add(nuevo_pkg)
+                db.add(nuevo)
                 db.commit()
-                st.success(f"✅ Paquete {tracking} ingresado al inventario.")
+                st.success("✅ Paquete registrado con éxito.")
             else:
-                st.error("Error: Los campos con * son obligatorios.")
+                st.warning("Por favor complete los campos obligatorios.")
 
-# --- MÓDULO 2: SEGUIMIENTO ---
+# --- RF3.2: MÓDULO DE SEGUIMIENTO ---
 elif menu == "Seguimiento":
-    st.header("🔍 Rastreo de Envíos")
-    guia_busqueda = st.text_input("Ingrese número de guía para consultar")
-    if guia_buscada:
-        res = db.query(Package).filter(Package.tracking_number == guia_buscada).first()
-        if res:
-            st.info(f"**Estado Actual:** {res.status}")
-            st.write(f"**Destinatario:** {res.recipient_name}")
-            st.write(f"**Dirección:** {res.recipient_address}")
-            st.write(f"**Fecha de Ingreso:** {res.created_at.strftime('%d/%m/%Y %H:%M')}")
+    st.header("🔍 Seguimiento de Paquetes")
+    busqueda = st.text_input("Buscar por Tracking Number")
+    if busqueda:
+        p = db.query(Package).filter(Package.tracking_number == busqueda).first()
+        if p:
+            st.info(f"**Estado:** {p.status}")
+            st.write(f"**Remitente:** {p.sender_name}")
+            st.write(f"**Destinatario:** {p.recipient_name}")
+            st.write(f"**Dirección:** {p.recipient_address}")
+            st.write(f"**Fecha Ingreso:** {p.created_at.strftime('%Y-%m-%d %H:%M')}")
         else:
-            st.warning("No se encontró ninguna guía coincidente.")
+            st.error("No se encontró el paquete.")
 
-# --- MÓDULO 3: DESPACHO ---
+# --- RF3.3: MÓDULO DE DESPACHO (Control de Estados) ---
 elif menu == "Despacho":
-    st.header("🚚 Gestión de Salidas y Última Milla")
-    p_pendientes = db.query(Package).filter(Package.status == "En Bodega").all()
-    
-    if p_pendientes:
-        guias_lista = [p.tracking_number for p in p_pendientes]
-        guia_a_despachar = st.selectbox("Seleccione Guía para Despacho", guias_lista)
+    st.header("🚚 Gestión de Salidas")
+    pendientes = db.query(Package).filter(Package.status != "Entregado").all()
+    if pendientes:
+        seleccion = st.selectbox("Paquete a gestionar", [p.tracking_number for p in pendientes])
+        nuevo_estado = st.selectbox("Actualizar Estado", ["En Tránsito", "Entregado", "Incidencia"])
         
-        if st.button("Marcar como En Ruta"):
-            pkg = db.query(Package).filter(Package.tracking_number == guia_a_despachar).first()
-            pkg.status = "En Ruta"
+        if st.button("Actualizar Movimiento"):
+            pkg = db.query(Package).filter(Package.tracking_number == seleccion).first()
+            pkg.status = nuevo_estado
+            if nuevo_estado == "Entregado":
+                pkg.is_delivered = True # RF3.3.2
             db.commit()
-            st.success(f"Guía {guia_a_despachar} asignada a despacho.")
+            st.success(f"Estado actualizado a {nuevo_estado}")
             st.rerun()
     else:
-        st.write("No hay paquetes pendientes por despachar.")
-
-# --- MÓDULO 4: MENSAJEROS ---
-elif menu == "Mensajeros":
-    st.header("👤 Administración de Personal")
-    # Lógica para registrar y ver mensajeros (en desarrollo)
-    st.info("Este módulo permite la gestión de la flota de última milla.")
+        st.write("No hay paquetes pendientes de entrega.")
 
 db.close()
