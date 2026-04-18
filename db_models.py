@@ -1,261 +1,152 @@
 # db_models.py
 
 import os
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, Boolean, func, Float
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Float, Boolean, ForeignKey
+from sqlalchemy.orm import sessionmaker, Session as SQLASession # Renombramos para evitar conflicto con st.Session
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship, scoped_session
-from sqlalchemy.exc import IntegrityError
-from datetime import datetime
-import io
-import pytz # Asegúrate de tener pytz instalado: pip install pytz
+from sqlalchemy.sql import func
+import pytz # Necesario para manejo de zonas horarias
 
-# --- Configuración de Zona Horaria ---
-# Usamos UTC como zona horaria estándar.
-try:
-    TIMEZONE = pytz.timezone('UTC')
-    PYTZ_AVAILABLE = True
-except ImportError:
-    TIMEZONE = None # Si pytz no está, usaremos datetime.utcnow directamente.
-    PYTZ_AVAILABLE = False
-    print("Advertencia: La librería 'pytz' no está instalada. Las fechas se manejarán en UTC. Instala con: pip install pytz")
-
-# --- Configuración de la Base de Datos (PostgreSQL) ---
-# Es CRUCIAL usar variables de entorno para la URL de la base de datos en producción.
-# Ejemplo de DATABASE_URL para PostgreSQL:
-# "postgresql://USUARIO:CONTRASENA@HOST:PUERTO/NOMBRE_BD"
-# Ejemplo: "postgresql://enlace_user:mi_contrasena@localhost:5432/enlaces360_db"
-
-# Intenta obtener la URL de la base de datos de las variables de entorno.
-# Si no está disponible (ej: en desarrollo local), usa un valor por defecto (¡DEBES CAMBIARLO!).
+# --- Configuración de la Base de Datos ---
+# Intenta obtener la URL de la base de datos de una variable de entorno.
+# Si no existe, usa una URL de conexión local por defecto.
+# ¡IMPORTANTE! Reemplaza los detalles de la conexión local si son diferentes.
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://enlace_user:mi_contrasena@localhost:5432/enlaces360_db")
 
-# Crea el engine de SQLAlchemy para PostgreSQL.
-# 'echo=True' es útil para ver las consultas SQL generadas durante el desarrollo.
-engine = create_engine(DATABASE_URL, echo=False) 
+# Crear el motor de la base de datos
+try:
+    engine = create_engine(DATABASE_URL)
+    Base = declarative_base()
+    # Crear una fábrica de sesiones
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+except Exception as e:
+    # Manejar error si la conexión falla al iniciar
+    print(f"Error al crear el motor de la base de datos: {e}")
+    # Podrías querer lanzar una excepción o establecer variables a None para indicar fallo
+    engine = None
+    Base = None
+    SessionLocal = None
 
-# Configuración de la sesión para manejar múltiples peticiones.
-# scoped_session es importante para aplicaciones web.
-session_factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Session = scoped_session(session_factory)
-
-# Declaración base para los modelos
-Base = declarative_base()
-
-# --- Función para obtener una sesión de base de datos ---
+# --- Función para obtener sesión de BD ---
 def get_db():
-    """Proporciona una sesión de base de datos."""
-    db = Session()
+    """Generador para obtener una sesión de base de datos."""
+    if SessionLocal is None:
+        print("Error: SessionLocal no está inicializado. La conexión a la BD falló.")
+        return None # O lanzar una excepción
+    db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
 
-# --- Función para formatear fechas a UTC ---
-def format_datetime_utc(dt):
-    """Formatea un objeto datetime a string en formato UTC."""
-    if dt:
-        if dt.tzinfo is None:
-            # Si no tiene zona horaria, asumimos que es UTC o la localizamos si pytz está disponible
-            dt_utc = TIMEZONE.localize(dt) if TIMEZONE else dt
-        else:
-            # Si tiene zona horaria, la convertimos a UTC
-            dt_utc = dt.astimezone(TIMEZONE) if TIMEZONE else dt.astimezone(datetime.timezone.utc)
-        
-        return dt_utc.strftime('%Y-%m-%d %H:%M:%S UTC') # Formato estándar
-    return "N/A"
-
-# --- Función para crear tablas (usar migraciones en producción) ---
+# --- Función para crear tablas (solo para desarrollo inicial) ---
 def create_tables():
     """Crea todas las tablas definidas en los modelos si no existen."""
+    if Base is None or engine is None:
+        print("Error: Base o engine no están inicializados. No se pueden crear tablas.")
+        return
     try:
-        # Base.metadata.create_all(bind=engine) 
-        # ¡ADVERTENCIA! create_all() es útil para desarrollo, pero en producción se recomienda usar
-        # herramientas de migración como Alembic para gestionar cambios en el esquema de BD de forma segura.
-        print("Tablas creadas o ya existentes (si se usa create_all).")
+        Base.metadata.create_all(bind=engine)
+        print("Tablas de base de datos verificadas/creadas.")
     except Exception as e:
-        print(f"Error al intentar crear tablas: {e}")
+        print(f"Error al crear tablas: {e}")
 
-# --- Autenticación de la conexión (opcional, para verificar que la BD está accesible) ---
-try:
-    connection = engine.connect()
-    print("Conexión a la base de datos PostgreSQL establecida correctamente.")
-    connection.close()
-except Exception as e:
-    print(f"Error al conectar a la base de datos: {e}")
-    print("Por favor, verifica que PostgreSQL esté corriendo y que la variable de entorno DATABASE_URL esté configurada correctamente.")
+# --- Manejo de Zona Horaria ---
+# Define la zona horaria a usar. 'UTC' es una buena práctica para el almacenamiento.
+# Si necesitas una zona horaria específica para mostrar, puedes usar pytz.
+TIMEZONE = pytz.timezone('UTC')
+PYTZ_AVAILABLE = True # Bandera para indicar si pytz está disponible
 
-# --- Definición de Modelos de Datos ---
+def format_datetime_utc(dt):
+    """Formatea un datetime a string UTC o local si es necesario."""
+    if dt is None:
+        return ""
+    try:
+        # Si el datetime ya tiene timezone info (es aware)
+        if dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None:
+            # Convertir a UTC si no lo está ya
+            dt_utc = dt.astimezone(TIMEZONE)
+        else:
+            # Si es naive, asumir que está en UTC (o la zona horaria por defecto)
+            dt_utc = TIMEZONE.localize(dt)
+            
+        # Formato común: YYYY-MM-DD HH:MM:SS UTC
+        return dt_utc.strftime('%Y-%m-%d %H:%M:%S') + " UTC"
+    except Exception as e:
+        print(f"Error al formatear fecha {dt}: {e}")
+        return str(dt) # Devolver la representación string si falla el formato
 
+
+# --- Definición de Modelos SQLAlchemy ---
+
+# --- Modelo ClientB2B ---
 class ClientB2B(Base):
     __tablename__ = "clients_b2b"
-    id = Column(Integer, primary_key=True)
-    name = Column(String(255), unique=True, nullable=False)
-    nit = Column(String(50), unique=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
-    
-    # Relaciones
-    client_shipments = relationship("ClientShipment", back_populates="client")
-    packages = relationship("Package", back_populates="client") # Paquetes no asociados a un envío específico
-    products = relationship("Product", back_populates="client")
 
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False, unique=True, index=True)
+    nit = Column(String(50), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Relaciones (si las hubiera, ej: paquetes, envíos)
+    packages = relationship("Package", back_populates="client") # Asumiendo que Package existe
+    client_shipments = relationship("ClientShipment", back_populates="client") # Asumiendo que ClientShipment existe
+
+    def __repr__(self):
+        return f"<ClientB2B(id={self.id}, name='{self.name}', nit='{self.nit}')>"
+
+# --- Modelo Product ---
 class Product(Base):
     __tablename__ = "products"
-    id = Column(Integer, primary_key=True)
-    name = Column(String(255), nullable=False)
-    client_id = Column(Integer, ForeignKey("clients_b2b.id"), index=True)
-    price_to_client = Column(Float, default=0.0) 
-    cost_to_courier = Column(Float, default=0.0) 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
 
-    client = relationship("ClientB2B", back_populates="products")
-    client_shipments = relationship("ClientShipment", back_populates="product")
-
-class Courier(Base):
-    __tablename__ = "couriers"
-    id = Column(Integer, primary_key=True)
-    name = Column(String(255), nullable=False)
-    phone = Column(String(50), nullable=True)
-    plate = Column(String(50), unique=True, nullable=True) # Placa es opcional pero única si se proporciona
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
-
-    packages = relationship("Package", back_populates="courier")
-    routes = relationship("Route", back_populates="courier")
-    movements = relationship("Movement", back_populates="courier") 
-
-class ClientShipment(Base): # Envío original del cliente B2B
-    __tablename__ = "client_shipments"
-    id = Column(Integer, primary_key=True)
-    client_id = Column(Integer, ForeignKey("clients_b2b.id"), index=True, nullable=False)
-    product_id = Column(Integer, ForeignKey("products.id"), index=True, nullable=True)
-    client_tracking_number = Column(String(100), unique=True, index=True, nullable=False) # Guía del cliente original
-    internal_tracking_number = Column(String(100), unique=True, index=True, nullable=True) # Guía interna generada por Enlace
-    quantity_total = Column(Integer, nullable=False, default=1)
-    quantity_available = Column(Integer, nullable=False, default=1) # Stock disponible para crear paquetes individuales
-    status = Column(String(50), default="PRE-ALERTA", index=True) # Ej: PRE-ALERTA, EN BODEGA, STOCK AGOTADO
-    received_at = Column(DateTime, nullable=True) # Fecha de recepción física (si aplica)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
-
-    client = relationship("ClientB2B", back_populates="client_shipments")
-    product = relationship("Product", back_populates="client_shipments")
-    packages = relationship("Package", back_populates="client_shipment") # Paquetes individuales creados desde este envío
-
-class Package(Base):
-    __tablename__ = "packages"
-    id = Column(Integer, primary_key=True)
-    internal_tracking_number = Column(String(100), unique=True, index=True, nullable=False)
-    client_shipment_id = Column(Integer, ForeignKey("client_shipments.id"), index=True, nullable=True)
-    client_id = Column(Integer, ForeignKey("clients_b2b.id"), index=True, nullable=True) # Cliente B2B final (si no viene de client_shipment)
-    courier_id = Column(Integer, ForeignKey("couriers.id"), nullable=True, index=True)
-    route_id = Column(Integer, ForeignKey("routes.id"), index=True, nullable=True) # FK a la ruta asignada
-
-    # Datos del destinatario y envío
-    recipient_name = Column(String(255), nullable=False)
-    recipient_address = Column(Text, nullable=False)
-    sender_name = Column(String(255)) # Puede ser el cliente B2B o Enlace
-    
-    # Estados y Trazabilidad
-    status = Column(String(50), default="PENDIENTE DE ENVÍO", index=True) # Ej: PENDIENTE DE ENVÍO, EN RUTA, ENTREGADO, NOVEDAD, DEVUELTO
-    is_delivered = Column(Boolean, default=False, index=True)
-    delivered_at = Column(DateTime, nullable=True)
-    
-    # COD (Cobro Contra Entrega)
-    cod_amount = Column(Float, default=0.0) # Monto a cobrar contra entrega
-    cod_paid = Column(Boolean, default=False, index=True) # Si el COD ya fue pagado
-    
-    # POD (Comprobante de Entrega)
-    delivery_proof_url = Column(String(512), nullable=True) # URL del POD
-
-    # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False, index=True)
+    client_id = Column(Integer, ForeignKey("clients_b2b.id"), nullable=False)
+    price_to_client = Column(Float, nullable=False)
+    cost_to_courier = Column(Float, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relaciones
-    client_shipment = relationship("ClientShipment", back_populates="packages")
-    client = relationship("ClientB2B", back_populates="packages")
-    courier = relationship("Courier", back_populates="packages")
-    route = relationship("Route", back_populates="packages")
-    movements = relationship("Movement", back_populates="package")
-    cod_records = relationship("CODRecord", back_populates="package") # Registros COD asociados a este paquete
-    attachments = relationship("FileStorage", back_populates="package") # Archivos adjuntos (PODs, fotos)
+    client = relationship("ClientB2B", back_populates="products")
+    client_shipments = relationship("ClientShipment", back_populates="product") # Asumiendo que ClientShipment existe
 
-class Movement(Base):
-    __tablename__ = "movements"
-    id = Column(Integer, primary_key=True)
-    package_id = Column(Integer, ForeignKey("packages.id"), index=True, nullable=False)
-    courier_id = Column(Integer, ForeignKey("couriers.id"), index=True, nullable=True) # Mensajero asociado al movimiento
-    route_id = Column(Integer, ForeignKey("routes.id"), index=True, nullable=True) # Ruta asociada al movimiento
-    
-    location = Column(String(255), nullable=False) # Ej: 'BODEGA', 'DIRECCION_DESTINATARIO', 'RUTA_X'
-    description = Column(Text, nullable=False) # Ej: 'Paquete recibido', 'En tránsito', 'Entregado'
-    movement_time = Column(DateTime, default=datetime.utcnow)
-    
-    package = relationship("Package", back_populates="movements")
-    courier = relationship("Courier", back_populates="movements")
-    route = relationship("Route", back_populates="movements")
+    # Constraint para asegurar que el nombre del producto sea único por cliente
+    __table_args__ = (UniqueConstraint('name', 'client_id', name='_name_client_uc'),)
 
-class Route(Base): # Ruta de entrega para un mensajero
-    __tablename__ = "routes"
-    id = Column(Integer, primary_key=True)
-    courier_id = Column(Integer, ForeignKey("couriers.id"), index=True, nullable=False)
-    route_number = Column(String(50), unique=True, index=True, nullable=False) # Ej: RUTA-20231027-001
-    start_time = Column(DateTime, default=datetime.utcnow)
-    end_time = Column(DateTime, nullable=True)
-    status = Column(String(50), default="PENDIENTE", index=True) # Ej: PENDIENTE, EN CURSO, CERRADA, CANCELADA
-    total_cod_collected = Column(Float, default=0.0) # Suma de COD recaudado en esta ruta
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    def __repr__(self):
+        return f"<Product(id={self.id}, name='{self.name}', client_id={self.client_id})>"
 
-    courier = relationship("Courier", back_populates="routes")
-    packages = relationship("Package", back_populates="route") # Paquetes asignados a esta ruta
-    cod_records = relationship("CODRecord", back_populates="route") # Registros COD de esta ruta
-    movements = relationship("Movement", back_populates="route") # Movimientos asociados a esta ruta
+# --- Modelo Courier (Mensajero) ---
+class Courier(Base):
+    __tablename__ = "couriers"
 
-class CODRecord(Base): # Registro de Cobro Contra Entrega
-    __tablename__ = "cod_records"
-    id = Column(Integer, primary_key=True)
-    package_id = Column(Integer, ForeignKey("packages.id"), index=True, nullable=False)
-    route_id = Column(Integer, ForeignKey("routes.id"), index=True, nullable=False)
-    courier_id = Column(Integer, ForeignKey("couriers.id"), index=True, nullable=False)
-    amount = Column(Float, nullable=False) # Monto cobrado
-    payment_method = Column(String(50)) # Ej: EFECTIVO, DATA-">fono", TRANSFERENCIA
-    status = Column(String(50), default="PENDIENTE", index=True) # Ej: PENDIENTE, LIQUIDADO, DISCREPANCIA
-    recorded_at = Column(DateTime, default=datetime.utcnow) # Momento en que se registra el COD
-    liquidated_at = Column(DateTime, nullable=True) # Momento en que se liquida
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False, unique=True, index=True)
+    phone = Column(String(50), nullable=True)
+    plate = Column(String(20), nullable=True, unique=True, index=True) # Placa del vehículo
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    package = relationship("Package", back_populates="cod_records")
-    route = relationship("Route", back_populates="cod_records")
-    courier = relationship("Courier") # Relación simple
+    # Relaciones
+    packages = relationship("Package", back_populates="courier") # Asumiendo que Package existe
+    routes = relationship("Route", back_populates="courier") # Asumiendo que Route existe
 
-class RegexMap(Base): # Para patrones de validación
-    __tablename__ = "regex_map"
-    id = Column(Integer, primary_key=True)
-    pattern_name = Column(String(100), unique=True, index=True, nullable=False) # Ej: 'VALID_POSTAL_CODE_SPAIN'
-    regex_pattern = Column(Text, nullable=False) # Ej: '^[0-9]{5}$'
-    description = Column(Text)
+    def __repr__(self):
+        return f"<Courier(id={self.id}, name='{self.name}', plate='{self.plate}', is_active={self.is_active})>"
 
-class FileStorage(Base): # Para metadatos de archivos subidos (PODs, firmas, etc.)
-    __tablename__ = "file_storage"
-    id = Column(Integer, primary_key=True)
-    package_id = Column(Integer, ForeignKey("packages.id"), index=True, nullable=True)
-    file_type = Column(String(50)) # Ej: 'POD_PDF', 'SIGNATURE', 'PHOTO_DELIVERY'
-    url = Column(String(512), nullable=False) # URL del archivo (S3, GCS, local)
-    original_name = Column(String(255))
-    uploaded_at = Column(DateTime, default=datetime.utcnow)
+# --- Modelos Adicionales (Ejemplos - ¡Asegúrate de tenerlos si los necesitas!) ---
+# Si no los tienes definidos en tu archivo 'base de datos.py' o 'modelos.py',
+# deberás definirlos aquí o adaptar las relaciones anteriores.
 
-    package = relationship("Package", back_populates="attachments")
-
-# --- Definición de Relaciones Adicionales (si faltan) ---
-# Asegurarse de que todas las relaciones bidireccionales estén completas.
-# Ejemplo: ClientB2B tiene 'client_shipments' y ClientShipment tiene 'client'.
-# Si no se definen explícitamente con 'relationship', SQLAlchemy puede inferirlas,
-# pero es mejor ser explícito para claridad.
-
-# --- Crear tablas (solo para desarrollo inicial) ---
-# En producción, se usarán migraciones (ej: Alembic).
-# Descomenta la siguiente línea para crear las tablas la primera vez que ejecutes el script.
-# create_tables() 
+# Ejemplo de Modelo Package (si lo usas)
+class Package(Base):
+    __tablename__ = "packages"
+    id = Column(Integer, primary_key=True, index=True)
+    tracking_number = Column(String(100), unique=True, index=True)
+    client_id = Column(Integer, ForeignKey("clients_b2b.id"), nullable=False)
+    courier_id = Column(Integer, ForeignKey("couriers.id"), nullable=True) # Puede ser null si aún no se asigna mensajero
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True) # Puede ser null si no es un producto específico
+    #
