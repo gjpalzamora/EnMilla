@@ -119,4 +119,105 @@ elif modulo == "2. Operaciones (Recibir)":
     if clis:
         col_c, col_p = st.columns(2)
         with col_c:
-            c_nom = st.selectbox("Cliente", [c.name for
+            c_nom = st.selectbox("Cliente", [c.name for c in clis])
+            cli_obj = db.query(ClientB2B).filter(ClientB2B.name == c_nom).first()
+        with col_p:
+            prods = db.query(Product).filter(Product.client_id == cli_obj.id).all()
+            p_nom = st.selectbox("Producto", [p.name for p in prods] if prods else ["GENÉRICO"])
+
+        def registrar_in():
+            guia = st.session_state.barcode_in.strip().upper()
+            if guia:
+                db_s = SessionLocal()
+                if not db_s.query(Package).filter(Package.tracking_number == guia).first():
+                    p = Package(tracking_number=guia, client_id=cli_obj.id, product_name=p_nom, status="BODEGA")
+                    db_s.add(p); db_s.commit()
+                    db_s.add(Movement(package_id=p.id, description=f"Ingreso Bodega - {p_nom}"))
+                    db_s.commit()
+                    st.toast(f"✅ {guia} Recibido")
+                db_s.close()
+                st.session_state.barcode_in = ""
+
+        st.text_input("ESCANEE AQUÍ", key="barcode_in", on_change=registrar_in)
+    db.close()
+
+# --- MÓDULO 3: DESPACHO Y MONITOREO ---
+elif modulo == "3. Despacho y Monitoreo":
+    st.header("Salida a Ruta y Control de Carga")
+    db = SessionLocal()
+    mens = db.query(Courier).filter(Courier.is_active == True).all()
+    
+    col_scan, col_monitor = st.columns([1, 2])
+    
+    with col_scan:
+        st.subheader("Escanear Salida")
+        if mens:
+            m_sel = st.selectbox("Mensajero", [f"{m.name} | {m.plate}" for m in mens])
+            m_id = db.query(Courier).filter(Courier.name == m_sel.split(" | ")[0]).first().id
+
+            def registrar_out():
+                guia = st.session_state.barcode_out.strip().upper()
+                if guia:
+                    db_d = SessionLocal()
+                    p = db_d.query(Package).filter(Package.tracking_number == guia).first()
+                    if p:
+                        p.status = "EN RUTA"
+                        p.courier_id = m_id
+                        db_d.add(Movement(package_id=p.id, description=f"Despachado con {m_sel}"))
+                        db_d.commit()
+                        st.toast(f"🚚 {guia} en Ruta")
+                    else: st.error("Guía no encontrada.")
+                    db_d.close()
+                    st.session_state.barcode_out = ""
+            st.text_input("ESCANEE PARA DESPACHO", key="barcode_out", on_change=registrar_out)
+
+    with col_monitor:
+        st.subheader("Estado de Carga")
+        carga = db.query(Courier.name, func.count(Package.id)).join(Package).filter(Package.status == "EN RUTA").group_by(Courier.name).all()
+        if carga:
+            st.table(pd.DataFrame(carga, columns=["Mensajero", "Paquetes en Ruta"]))
+            with st.expander("Ver Detalle por Guía"):
+                det = db.query(Package.tracking_number, Courier.name, Package.product_name).join(Courier).filter(Package.status == "EN RUTA").all()
+                st.dataframe(pd.DataFrame(det, columns=["Guía", "Mensajero", "Producto"]), use_container_width=True)
+        else: st.info("No hay entregas en curso.")
+    db.close()
+
+# --- MÓDULO 4: EDICIÓN DE MAESTROS ---
+elif modulo == "4. Edición de Maestros":
+    st.header("Módulo de Correcciones")
+    db = SessionLocal()
+    tipo = st.radio("Editar:", ["Productos", "Clientes", "Mensajeros"])
+    
+    if tipo == "Productos":
+        prods = db.query(Product).all()
+        if prods:
+            p_sel = st.selectbox("Seleccione Producto", [f"{p.id} | {p.name}" for p in prods])
+            p_obj = db.query(Product).get(int(p_sel.split(" | ")[0]))
+            with st.form("ed_p"):
+                new_n = st.text_input("Nuevo nombre", value=p_obj.name).upper()
+                if st.form_submit_button("Actualizar"):
+                    p_obj.name = new_n; db.commit(); st.success("Actualizado"); st.rerun()
+
+    elif tipo == "Clientes":
+        clis = db.query(ClientB2B).all()
+        if clis:
+            c_sel = st.selectbox("Seleccione Cliente", [c.name for c in clis])
+            c_obj = db.query(ClientB2B).filter(ClientB2B.name == c_sel).first()
+            with st.form("ed_c"):
+                new_n = st.text_input("Nombre Empresa", value=c_obj.name).upper()
+                new_nit = st.text_input("NIT", value=c_obj.nit)
+                if st.form_submit_button("Actualizar"):
+                    c_obj.name = new_n; c_obj.nit = new_nit; db.commit(); st.success("Actualizado"); st.rerun()
+
+    elif tipo == "Mensajeros":
+        mens = db.query(Courier).all()
+        if mens:
+            m_sel = st.selectbox("Seleccione Mensajero", [m.name for m in mens])
+            m_obj = db.query(Courier).filter(Courier.name == m_sel).first()
+            with st.form("ed_m"):
+                new_n = st.text_input("Nombre", value=m_obj.name).upper()
+                new_p = st.text_input("Placa", value=m_obj.plate).upper()
+                act = st.checkbox("Activo", value=m_obj.is_active)
+                if st.form_submit_button("Actualizar"):
+                    m_obj.name = new_n; m_obj.plate = new_p; m_obj.is_active = act; db.commit(); st.success("Actualizado"); st.rerun()
+    db.close()
