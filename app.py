@@ -1,80 +1,89 @@
 import streamlit as st
-from database import engine, SessionLocal, Base
-from models import Package, Client, ClientShipment
-import uuid
+import requests
+from datetime import datetime
 
-# Configuración Profesional
-st.set_page_config(page_title="Enmilla ERP - Logística", layout="wide")
-Base.metadata.create_all(bind=engine)
-db = SessionLocal()
+# --- CONFIGURACIÓN DE IMAGEN CORPORATIVA ---
+st.set_page_config(
+    page_title="Enmilla ERP - Enlace Soluciones Logísticas", 
+    layout="wide", 
+    page_icon="🚚"
+)
 
-st.title("🚚 Enmilla ERP - Gestión Estratégica")
+# URL de tu nueva API (Enlaces-360-API)
+API_BASE_URL = "http://localhost:3000/api" # Cambiar por tu URL de producción
 
-menu = st.sidebar.selectbox("Módulo Operativo", 
-    ["Gestión de Clientes", "Recepción (Escaneo Rápido)", "Distribución", "Seguimiento"])
+# --- ESTILOS ---
+st.markdown("""
+    <style>
+    .main { background-color: #f5f7f9; }
+    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #004a99; color: white; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# --- RF5.1: GESTIÓN DE CLIENTES ---
-if menu == "Gestión de Clientes":
-    st.header("🏢 Registro de Clientes Corporativos")
-    with st.form("nuevo_cliente"):
-        nombre = st.text_input("Nombre de la Empresa/Cliente*")
-        email = st.text_input("Correo Electrónico")
-        if st.form_submit_button("Registrar Cliente"):
-            if nombre:
-                nuevo_c = Client(name=nombre, email=email)
-                db.add(nuevo_c)
-                db.commit()
-                st.success(f"Cliente {nombre} creado.")
+# --- CABECERA ---
+st.title("🚚 Enmilla ERP")
+st.caption("Plataforma de Gestión Logística | Enlace Soluciones Logísticas SAS")
 
-# --- RF5.3: ESCANEO RÁPIDO EN BODEGA ---
-elif menu == "Recepción (Escaneo Rápido)":
-    st.header("⚡ Ingreso Masivo a Bodega")
-    st.info("Compatible con lectores de código de barras (Enter automático)")
+# --- MENÚ DE OPERACIONES (RF5.1 - RF5.4) ---
+menu = st.sidebar.radio("Navegación Operativa", [
+    "📦 Recepción Masiva", 
+    "⛟ Distribución de Clientes", 
+    "🔍 Rastreo 360",
+    "👤 Gestión de Mensajeros"
+])
+
+# --- LÓGICA DE MÓDULOS ---
+
+if menu == "📦 Recepción Masiva":
+    st.header("Escaneo Rápido de Bodega (RF5.3)")
+    st.info("Utilice el lector de códigos de barras para ingresos masivos.")
     
-    # Campo de enfoque automático para el lector
-    scan_input = st.text_input("Escanee Código de Guía (Cliente o Interna)", key="scanner", help="El lector debe enviar 'Enter' al final")
+    # El campo de texto captura la entrada del scanner
+    tracking_input = st.text_input("Esperando lectura de código...", key="scanner_input")
     
-    if scan_input:
-        # Lógica de búsqueda y actualización automática
-        pkg = db.query(Package).filter(Package.internal_tracking_number == scan_input).first()
-        if pkg:
-            pkg.status = "Ingresado a Bodega"
-            db.commit()
-            st.success(f"📦 Paquete {scan_input} actualizado a: Ingresado a Bodega")
-        else:
-            st.error("❌ Código no reconocido en el sistema.")
+    if tracking_input:
+        # Llamada al servicio de recepción de la API
+        try:
+            response = requests.post(f"{API_BASE_URL}/reception/scan", json={"tracking": tracking_input})
+            if response.status_code == 200:
+                st.success(f"✅ Guía {tracking_input} ingresada correctamente a bodega.")
+            else:
+                st.error(f"❌ Error en API: {response.json().get('message', 'Desconocido')}")
+        except Exception as e:
+            st.error(f"🔌 Error de conexión con Enlaces-360-API: {e}")
 
-# --- RF5.2: DISTRIBUCIÓN (Crear Paquetes desde Envío de Cliente) ---
-elif menu == "Distribución":
-    st.header("⛟ Distribución de Envíos de Clientes")
-    envios_disponibles = db.query(ClientShipment).filter(ClientShipment.quantity_available > 0).all()
+elif menu == "⛟ Distribución de Clientes":
+    st.header("Distribución B2B (RF5.2)")
+    st.write("Vincular envíos de clientes corporativos a destinatarios finales.")
     
-    if envios_disponibles:
-        opciones = {f"{e.client.name} - {e.client_tracking_number} (Disp: {e.quantity_available})": e.id for e in envios_disponibles}
-        seleccion = st.selectbox("Seleccione envío del cliente para distribuir", opciones.keys())
+    # Simulación de obtención de envíos pendientes desde la API
+    with st.form("distribucion_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            cliente = st.selectbox("Seleccionar Cliente Corporativo", ["Cliente A", "Cliente B"])
+            lote = st.text_input("Número de Lote/Shipment")
+        with col2:
+            destinatario = st.text_input("Nombre Destinatario Final")
+            direccion = st.text_input("Dirección Completa")
         
-        with st.form("distribuir"):
-            dest = st.text_input("Nombre Destinatario Final*")
-            dir_dest = st.text_input("Dirección de Entrega*")
-            if st.form_submit_button("Generar Paquete y Etiqueta"):
-                envio_id = opciones[seleccion]
-                envio = db.query(ClientShipment).get(envio_id)
-                
-                # RF5.2.1: Crear paquete y decrementar inventario
-                nueva_guia = f"ENM-{uuid.uuid4().hex[:8].upper()}"
-                nuevo_p = Package(
-                    internal_tracking_number=nueva_guia,
-                    client_shipment_id=envio.id,
-                    recipient_name=dest,
-                    recipient_address=dir_dest,
-                    status="Listo para Despacho"
-                )
-                envio.quantity_available -= 1
-                db.add(nuevo_p)
-                db.commit()
-                st.success(f"✅ Paquete creado. Guía Interna: {nueva_guia}")
-                st.info("🖨️ Generando etiqueta PDF... (RF5.2.2)")
-    else:
-        st.write("No hay bultos de clientes pendientes de distribuir.")
+        if st.form_submit_button("Generar Guía Interna y Etiqueta"):
+            # Aquí se llamaría a label.service.js a través de la API
+            st.warning("🔄 Procesando en Enlaces-360-API...")
+            st.info("🖨️ Generando POD/Etiqueta PDF vía fpdf2...")
 
-db.close()
+elif menu == "🔍 Rastreo 360":
+    st.header("Trazabilidad Total")
+    busqueda = st.text_input("Ingrese Guía Interna o de Cliente")
+    if busqueda:
+        # Consulta al controlador de paquetes de la API
+        res = requests.get(f"{API_BASE_URL}/package/{busqueda}")
+        if res.status_code == 200:
+            data = res.json()
+            st.json(data) # Muestra el historial de movimientos (Movements)
+        else:
+            st.error("Guía no encontrada en el sistema.")
+
+# --- FOOTER ---
+st.sidebar.markdown("---")
+st.sidebar.write(f"© {datetime.now().year} Enlace Soluciones Logísticas SAS")
+st.sidebar.write("Versión 1.0 - Architecture 360")
