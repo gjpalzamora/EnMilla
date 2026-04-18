@@ -1,121 +1,344 @@
-# --- 2. MODELOS DE DATOS ---
-# (Mantener ClientB2B, Product, Courier, Package, Movement como están o con ajustes menores)
+# admin_module.py
 
-# --- NUEVOS MODELOS PARA ENLACES 360 ---
+import streamlit as st
+import pandas as pd
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+from datetime import datetime
 
-class ClientShipment(Base):
-    __tablename__ = "client_shipments"
-    id = Column(Integer, primary_key=True)
-    client_id = Column(Integer, ForeignKey("clients_b2b.id"), index=True, nullable=False)
-    product_id = Column(Integer, ForeignKey("products.id"), index=True, nullable=True) # Opcional, si el envío es de un producto específico
-    client_tracking_number = Column(String(100), unique=True, index=True, nullable=False) # Guía del cliente original
-    internal_tracking_number = Column(String(100), unique=True, index=True, nullable=True) # Guía interna generada por Enlace (si aplica)
-    quantity_total = Column(Integer, nullable=False, default=1)
-    quantity_available = Column(Integer, nullable=False, default=1) # Stock disponible para crear paquetes individuales
-    status = Column(String(50), default="PRE-ALERTA") # Ej: PRE-ALERTA, EN BODEGA, STOCK AGOTADO
-    received_at = Column(DateTime, default=datetime.utcnow) # Fecha de recepción física
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+# --- IMPORTACIONES NECESARIAS ---
+try:
+    from db_models import ClientB2B, Product, Courier, Base, engine, Session, format_datetime_utc, TIMEZONE, PYTZ_AVAILABLE
+    from sqlalchemy import func
+    DB_MODELS_IMPORTED = True
+except ImportError as e:
+    st.error(f"Error de importación en admin_module.py: {e}. Asegúrate de que 'db_models.py' exista y las importaciones sean correctas.")
+    DB_MODELS_IMPORTED = False
 
-    client = relationship("ClientB2B", back_populates="client_shipments")
-    product = relationship("Product", back_populates="client_shipments")
-    packages = relationship("Package", back_populates="client_shipment") # Paquetes individuales creados desde este envío
+# --- FUNCIONES AUXILIARES PARA CRUD (Crear, Leer, Actualizar, Eliminar) ---
+# (Las funciones CRUD para ClientB2B, Product, Courier se mantienen igual que en la versión anterior)
+# ... (código CRUD omitido por brevedad, pero debe estar presente) ...
 
-class Package(Base): # Modificaciones al Package existente
-    __tablename__ = "packages"
-    id = Column(Integer, primary_key=True)
-    internal_tracking_number = Column(String(100), unique=True, index=True, nullable=False)
-    client_shipment_id = Column(Integer, ForeignKey("client_shipments.id"), index=True, nullable=True) # FK al envío original
-    client_id = Column(Integer, ForeignKey("clients_b2b.id"), index=True) # Cliente B2B final (si no viene de client_shipment)
-    courier_id = Column(Integer, ForeignKey("couriers.id"), nullable=True, index=True)
-    recipient_name = Column(String(255), nullable=False)
-    recipient_address = Column(Text, nullable=False)
-    sender_name = Column(String(255)) # Podría ser el nombre del cliente B2B o Enlace
-    status = Column(String(50), default="PENDIENTE DE ENVÍO") # Ej: PENDIENTE DE ENVÍO, EN RUTA, ENTREGADO, NOVEDAD, DEVUELTO
-    created_at = Column(DateTime, default=datetime.utcnow)
-    delivered_at = Column(DateTime, nullable=True)
-    is_delivered = Column(Boolean, default=False)
-    delivery_proof_url = Column(String(512), nullable=True) # URL del POD
-    cod_amount = Column(Float, default=0.0) # Monto a cobrar contra entrega
-    cod_paid = Column(Boolean, default=False) # Si el COD ya fue pagado
-    route_id = Column(Integer, ForeignKey("routes.id"), index=True, nullable=True) # FK a la ruta asignada
+# --- CRUD para ClientB2B (copiado de la versión anterior) ---
+def get_clients(db: Session):
+    if not DB_MODELS_IMPORTED: return []
+    try:
+        return db.query(ClientB2B).order_by(ClientB2B.name).all()
+    except Exception as e:
+        st.error(f"Error al obtener clientes: {e}")
+        return []
 
-    client_shipment = relationship("ClientShipment", back_populates="packages")
-    client = relationship("ClientB2B", back_populates="packages") # Si el paquete no viene de client_shipment
-    courier = relationship("Courier", back_populates="packages")
-    movements = relationship("Movement", back_populates="package")
-    route = relationship("Route", back_populates="packages")
+def add_client(db: Session, name: str, nit: str):
+    if not DB_MODELS_IMPORTED: return False
+    try:
+        now = datetime.utcnow()
+        new_client = ClientB2B(name=name, nit=nit, created_at=now, updated_at=now)
+        db.add(new_client)
+        db.commit()
+        st.success(f"Cliente '{name}' añadido correctamente.")
+        return True
+    except IntegrityError:
+        db.rollback()
+        st.error(f"Error: El cliente con nombre '{name}' o NIT '{nit}' ya existe.")
+        return False
+    except Exception as e:
+        db.rollback()
+        st.error(f"Error al añadir cliente: {e}")
+        return False
 
-class Route(Base): # Para agrupar paquetes en una ruta de mensajero
-    __tablename__ = "routes"
-    id = Column(Integer, primary_key=True)
-    courier_id = Column(Integer, ForeignKey("couriers.id"), index=True, nullable=False)
-    route_number = Column(String(50), unique=True, index=True, nullable=False) # Ej: RUTA-20231027-001
-    start_time = Column(DateTime, default=datetime.utcnow)
-    end_time = Column(DateTime, nullable=True)
-    status = Column(String(50), default="PENDIENTE") # Ej: PENDIENTE, EN CURSO, CERRADA, CANCELADA
-    total_cod_collected = Column(Float, default=0.0) # Suma de COD recaudado en esta ruta
+def update_client(db: Session, client_id: int, name: str, nit: str):
+    if not DB_MODELS_IMPORTED: return False
+    try:
+        client = db.query(ClientB2B).filter(ClientB2B.id == client_id).first()
+        if client:
+            client.name = name
+            client.nit = nit
+            client.updated_at = datetime.utcnow()
+            db.commit()
+            st.success(f"Cliente '{name}' (ID: {client_id}) actualizado correctamente.")
+            return True
+        else:
+            st.error(f"Error: Cliente con ID {client_id} no encontrado.")
+            return False
+    except IntegrityError:
+        db.rollback()
+        st.error(f"Error: Ya existe otro cliente con nombre '{name}' o NIT '{nit}'.")
+        return False
+    except Exception as e:
+        db.rollback()
+        st.error(f"Error al actualizar cliente: {e}")
+        return False
 
-    courier = relationship("Courier", back_populates="routes")
-    packages = relationship("Package", back_populates="route")
-    cod_records = relationship("CODRecord", back_populates="route")
+def delete_client(db: Session, client_id: int):
+    if not DB_MODELS_IMPORTED: return False
+    try:
+        client = db.query(ClientB2B).filter(ClientB2B.id == client_id).first()
+        if client:
+            if client.packages or client.client_shipments:
+                st.warning(f"No se puede eliminar el cliente '{client.name}' (ID: {client_id}) porque tiene paquetes o envíos asociados.")
+                return False
+            db.delete(client)
+            db.commit()
+            st.success(f"Cliente con ID {client_id} eliminado correctamente.")
+            return True
+        else:
+            st.error(f"Error: Cliente con ID {client_id} no encontrado.")
+            return False
+    except Exception as e:
+        db.rollback()
+        st.error(f"Error al eliminar cliente: {e}")
+        return False
 
-class CODRecord(Base): # Para registrar los cobros contra entrega
-    __tablename__ = "cod_records"
-    id = Column(Integer, primary_key=True)
-    package_id = Column(Integer, ForeignKey("packages.id"), index=True, nullable=False)
-    route_id = Column(Integer, ForeignKey("routes.id"), index=True, nullable=False)
-    courier_id = Column(Integer, ForeignKey("couriers.id"), index=True, nullable=False)
-    amount = Column(Float, nullable=False)
-    payment_method = Column(String(50)) # Ej: EFECTIVO, DATA-">fono", TRANSFERENCIA
-    status = Column(String(50), default="PENDIENTE") # Ej: PENDIENTE, LIQUIDADO, DISCREPANCIA
-    recorded_at = Column(DateTime, default=datetime.utcnow) # Momento en que se registra el COD
-    liquidated_at = Column(DateTime, nullable=True) # Momento en que se liquida
+# --- CRUD para Product (copiado de la versión anterior) ---
+def get_products(db: Session, client_id: int = None):
+    if not DB_MODELS_IMPORTED: return []
+    try:
+        query = db.query(Product, ClientB2B.name.label("client_name")).join(ClientB2B).order_by(Product.name)
+        if client_id:
+            query = query.filter(Product.client_id == client_id)
+        results = query.all()
+        products_list = []
+        for product, client_name in results:
+            products_list.append({
+                "id": product.id, "name": product.name, "client_name": client_name,
+                "client_id": product.client_id, "price_to_client": product.price_to_client,
+                "cost_to_courier": product.cost_to_courier, "created_at": product.created_at,
+                "updated_at": product.updated_at
+            })
+        return products_list
+    except Exception as e:
+        st.error(f"Error al obtener productos: {e}")
+        return []
 
-    package = relationship("Package", back_populates="cod_records")
-    route = relationship("Route", back_populates="cod_records")
-    courier = relationship("Courier") # Relación simple, no necesita back_populates si no se usa
+def add_product(db: Session, name: str, client_id: int, price_to_client: float, cost_to_courier: float):
+    if not DB_MODELS_IMPORTED: return False
+    try:
+        now = datetime.utcnow()
+        new_product = Product(name=name, client_id=client_id, price_to_client=price_to_client, 
+                              cost_to_courier=cost_to_courier, created_at=now, updated_at=now)
+        db.add(new_product)
+        db.commit()
+        st.success(f"Producto '{name}' añadido correctamente.")
+        return True
+    except IntegrityError:
+        db.rollback()
+        st.error(f"Error: El producto con nombre '{name}' ya existe para este cliente.")
+        return False
+    except Exception as e:
+        db.rollback()
+        st.error(f"Error al añadir producto: {e}")
+        return False
 
-class RegexMap(Base): # Para patrones de validación
-    __tablename__ = "regex_map"
-    id = Column(Integer, primary_key=True)
-    pattern_name = Column(String(100), unique=True, index=True, nullable=False)
-    regex_pattern = Column(Text, nullable=False)
-    description = Column(Text)
+def update_product(db: Session, product_id: int, name: str, client_id: int, price_to_client: float, cost_to_courier: float):
+    if not DB_MODELS_IMPORTED: return False
+    try:
+        product = db.query(Product).filter(Product.id == product_id).first()
+        if product:
+            product.name = name
+            product.client_id = client_id
+            product.price_to_client = price_to_client
+            product.cost_to_courier = cost_to_courier
+            product.updated_at = datetime.utcnow()
+            db.commit()
+            st.success(f"Producto '{name}' (ID: {product_id}) actualizado correctamente.")
+            return True
+        else:
+            st.error(f"Error: Producto con ID {product_id} no encontrado.")
+            return False
+    except IntegrityError:
+        db.rollback()
+        st.error(f"Error: Ya existe otro producto con nombre '{name}' para este cliente.")
+        return False
+    except Exception as e:
+        db.rollback()
+        st.error(f"Error al actualizar producto: {e}")
+        return False
 
-class FileStorage(Base): # Para metadatos de archivos subidos (PODs, firmas, etc.)
-    __tablename__ = "file_storage"
-    id = Column(Integer, primary_key=True)
-    package_id = Column(Integer, ForeignKey("packages.id"), index=True, nullable=True)
-    file_type = Column(String(50)) # Ej: 'POD_PDF', 'SIGNATURE', 'PHOTO_DELIVERY'
-    url = Column(String(512), nullable=False) # URL del archivo (S3, GCS, local)
-    original_name = Column(String(255))
-    uploaded_at = Column(DateTime, default=datetime.utcnow)
+def delete_product(db: Session, product_id: int):
+    if not DB_MODELS_IMPORTED: return False
+    try:
+        product = db.query(Product).filter(Product.id == product_id).first()
+        if product:
+            if product.client_shipments:
+                st.warning(f"No se puede eliminar el producto '{product.name}' (ID: {product_id}) porque tiene envíos asociados.")
+                return False
+            db.delete(product)
+            db.commit()
+            st.success(f"Producto con ID {product_id} eliminado correctamente.")
+            return True
+        else:
+            st.error(f"Error: Producto con ID {product_id} no encontrado.")
+            return False
+    except Exception as e:
+        db.rollback()
+        st.error(f"Error al eliminar producto: {e}")
+        return False
 
-    package = relationship("Package", back_populates="attachments")
+# --- CRUD para Courier (copiado de la versión anterior) ---
+def get_couriers(db: Session, active_only: bool = False):
+    if not DB_MODELS_IMPORTED: return []
+    try:
+        query = db.query(Courier)
+        if active_only:
+            query = query.filter(Courier.is_active == True)
+        return query.order_by(Courier.name).all()
+    except Exception as e:
+        st.error(f"Error al obtener mensajeros: {e}")
+        return []
 
-# --- Añadir relaciones a modelos existentes ---
-# ClientB2B
-ClientB2B.client_shipments = relationship("ClientShipment", back_populates="client")
-ClientB2B.routes = relationship("Route", back_populates="client") # Si un cliente B2B puede tener rutas asociadas (menos común)
+def add_courier(db: Session, name: str, phone: str, plate: str):
+    if not DB_MODELS_IMPORTED: return False
+    try:
+        now = datetime.utcnow()
+        if plate:
+            existing_courier = db.query(Courier).filter(Courier.plate == plate).first()
+            if existing_courier:
+                st.error(f"Error: Ya existe un mensajero con la placa '{plate}'.")
+                return False
+        new_courier = Courier(name=name, phone=phone, plate=plate, is_active=True, created_at=now, updated_at=now)
+        db.add(new_courier)
+        db.commit()
+        st.success(f"Mensajero '{name}' añadido correctamente.")
+        return True
+    except IntegrityError:
+        db.rollback()
+        st.error(f"Error: Ya existe un mensajero con el nombre '{name}'.")
+        return False
+    except Exception as e:
+        db.rollback()
+        st.error(f"Error al añadir mensajero: {e}")
+        return False
 
-# Product
-Product.client_shipments = relationship("ClientShipment", back_populates="product")
+def update_courier(db: Session, courier_id: int, name: str, phone: str, plate: str, is_active: bool):
+    if not DB_MODELS_IMPORTED: return False
+    try:
+        courier = db.query(Courier).filter(Courier.id == courier_id).first()
+        if courier:
+            if plate and plate != courier.plate:
+                existing_courier = db.query(Courier).filter(Courier.plate == plate, Courier.id != courier_id).first()
+                if existing_courier:
+                    st.error(f"Error: Ya existe otro mensajero con la placa '{plate}'.")
+                    return False
+            courier.name = name
+            courier.phone = phone
+            courier.plate = plate
+            courier.is_active = is_active
+            courier.updated_at = datetime.utcnow()
+            db.commit()
+            st.success(f"Mensajero '{name}' (ID: {courier_id}) actualizado correctamente.")
+            return True
+        else:
+            st.error(f"Error: Mensajero con ID {courier_id} no encontrado.")
+            return False
+    except IntegrityError:
+        db.rollback()
+        st.error(f"Error: Ya existe otro mensajero con el nombre '{name}'.")
+        return False
+    except Exception as e:
+        db.rollback()
+        st.error(f"Error al actualizar mensajero: {e}")
+        return False
 
-# Courier
-Courier.routes = relationship("Route", back_populates="courier")
+def delete_courier(db: Session, courier_id: int):
+    if not DB_MODELS_IMPORTED: return False
+    try:
+        courier = db.query(Courier).filter(Courier.id == courier_id).first()
+        if courier:
+            if courier.packages or courier.routes:
+                st.warning(f"No se puede eliminar el mensajero '{courier.name}' (ID: {courier_id}) porque tiene paquetes o rutas asociadas.")
+                return False
+            db.delete(courier)
+            db.commit()
+            st.success(f"Mensajero con ID {courier_id} eliminado correctamente.")
+            return True
+        else:
+            st.error(f"Error: Mensajero con ID {courier_id} no encontrado.")
+            return False
+    except Exception as e:
+        db.rollback()
+        st.error(f"Error al eliminar mensajero: {e}")
+        return False
 
-# Package (ya tiene las relaciones añadidas arriba)
 
-# ClientShipment (ya tiene las relaciones añadidas arriba)
+# --- Interfaz de Usuario para el Módulo de Administración ---
+def display_admin_module(db: Session):
+    """Muestra la interfaz de Streamlit para la gestión de maestros."""
+    if not DB_MODELS_IMPORTED:
+        st.error("No se puede mostrar el módulo de administración debido a errores de importación de modelos.")
+        return
 
-# Route (ya tiene las relaciones añadidas arriba)
+    # --- TÍTULO PRINCIPAL DEL MÓDULO ---
+    # Se elimina el sub-nombre y se usa solo "Administración"
+    st.header("Administración")
+    
+    # --- PESTAÑAS DENTRO DEL MÓDULO ---
+    # Se eliminan los sub-nombres de las pestañas
+    tab1, tab2, tab3 = st.tabs([
+        "Clientes B2B", "Productos", "Mensajeros"
+    ])
 
-# Movement (ya tiene la relación añadida arriba)
+    # --- Pestaña: Clientes B2B ---
+    with tab1:
+        st.subheader("Gestión de Clientes B2B")
+        
+        with st.expander("Añadir Nuevo Cliente B2B"):
+            with st.form("add_client_form", clear_on_submit=True):
+                client_name = st.text_input("Nombre del Cliente:")
+                client_nit = st.text_input("NIT:")
+                submitted = st.form_submit_button("Guardar Cliente")
+                if submitted:
+                    if client_name and client_nit:
+                        add_client(db, client_name, client_nit)
+                    else:
+                        st.warning("Por favor, ingrese el nombre y NIT del cliente.")
 
-# CODRecord (ya tiene las relaciones añadidas arriba)
+        st.divider()
+        
+        st.subheader("Listado de Clientes B2B")
+        clients = get_clients(db)
+        if clients:
+            df_clients = pd.DataFrame([{
+                "ID": c.id, "Nombre": c.name, "NIT": c.nit,
+                "Creado": format_datetime_utc(c.created_at), "Actualizado": format_datetime_utc(c.updated_at),
+                "Acciones": None
+            } for c in clients])
+            
+            st.dataframe(df_clients, use_container_width=True)
 
-# FileStorage (ya tiene la relación añadida arriba)
+            st.subheader("Acciones sobre Clientes")
+            client_to_edit_id = st.selectbox("Selecciona un cliente para editar o eliminar:", 
+                                             options=[c.id for c in clients], 
+                                             format_func=lambda x: f"{next(c.name for c in clients if c.id == x)} (ID: {x})",
+                                             key="select_client_action")
 
-# --- Crear tablas ---
-# Base.metadata.create_all(bind=engine) # Usar migraciones en producción
+            if client_to_edit_id:
+                client_to_edit = db.query(ClientB2B).filter(ClientB2B.id == client_to_edit_id).first()
+                if client_to_edit:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        with st.expander(f"Editar Cliente: {client_to_edit.name}"):
+                            with st.form(f"edit_client_form_{client_to_edit.id}", clear_on_submit=True):
+                                edit_name = st.text_input("Nombre del Cliente:", value=client_to_edit.name)
+                                edit_nit = st.text_input("NIT:", value=client_to_edit.nit)
+                                submitted_edit = st.form_submit_button("Actualizar Cliente")
+                                if submitted_edit:
+                                    if edit_name and edit_nit:
+                                        update_client(db, client_to_edit.id, edit_name, edit_nit)
+                                    else:
+                                        st.warning("Por favor, ingrese el nombre y NIT.")
+                    with col2:
+                        with st.expander(f"Eliminar Cliente: {client_to_edit.name}"):
+                            st.warning(f"¿Está seguro que desea eliminar al cliente '{client_to_edit.name}' (ID: {client_to_edit.id})?")
+                            if st.button("Confirmar Eliminación", key=f"confirm_delete_client_{client_to_edit.id}"):
+                                delete_client(db, client_to_edit.id)
+                                st.rerun() # Recargar para actualizar la lista
+        else:
+            st.info("No hay clientes B2B registrados aún.")
+
+    # --- Pestaña: Productos ---
+    with tab2:
+        st.subheader("Gestión de Productos")
+        
+        # Obtener lista de clientes para el selectbox
+        clients_for_product = get_clients(db)
+        client_options = {c.
