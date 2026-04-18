@@ -6,17 +6,26 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 import io
-import os # Necesario para leer variables de entorno
+import os
 
 # --- IMPORTACIONES DE MÓDULOS ---
-# Asegúrate de que estos archivos estén en la misma carpeta o en una subcarpeta accesible
-# Si db_models.py está en una subcarpeta 'src', la importación sería: from src.db_models import ...
+# Asegúrate de que 'db_models.py' y 'admin_module.py' estén en la MISMA CARPETA que app.py
+# Si están en una subcarpeta (ej: 'src/'), las importaciones deberían ser:
+# from src.db_models import ...
+# from src.admin_module import ...
+
 try:
-    from db_models import ClientB2B, Product, Courier, Base, engine, Session, format_datetime_utc, TIMEZONE, PYTZ_AVAILABLE, get_db, create_tables # Importamos todo de db_models
-    from admin_module import display_admin_module, get_clients # Importamos la función del módulo de administración
+    # Importamos todo lo necesario de db_models.py
+    from db_models import (
+        ClientB2B, Product, Courier, Base, engine, Session, 
+        format_datetime_utc, TIMEZONE, PYTZ_AVAILABLE, get_db, create_tables
+    )
+    # Importamos la función principal del módulo de administración
+    from admin_module import display_admin_module
     MODULES_IMPORTED = True
+    st.success("Módulos 'db_models.py' y 'admin_module.py' importados correctamente.") # Mensaje de éxito para depuración
 except ImportError as e:
-    st.error(f"Error de importación: {e}. Asegúrate de que 'db_models.py' y 'admin_module.py' estén en el lugar correcto y las importaciones sean correctas.")
+    st.error(f"Error de importación: {e}. Asegúrate de que 'db_models.py' y 'admin_module.py' estén en la misma carpeta que 'app.py' y que sus nombres sean correctos.")
     MODULES_IMPORTED = False
 
 # --- CONFIGURACIÓN INICIAL DE STREAMLIT ---
@@ -24,13 +33,27 @@ st.set_page_config(page_title="Enlaces 360 - Backoffice", layout="wide")
 
 # --- INICIALIZACIÓN DE LA BASE DE DATOS Y SESIÓN ---
 # Usamos la función get_db() que definimos en db_models.py
-# La sesión se maneja dentro de cada módulo o función que la necesite.
+db_session_generator = None
+db_session = None
+if MODULES_IMPORTED:
+    try:
+        db_session_generator = get_db() # Esto nos da un generador para la sesión
+        db_session = next(db_session_generator) # Obtenemos la sesión actual
+        st.success("Conexión a la base de datos lista.")
+    except Exception as e:
+        st.error(f"Error al obtener la sesión de la base de datos: {e}")
+        MODULES_IMPORTED = False # Desactivamos la carga de módulos si la BD falla
 
 # --- LLAMADA A LA CREACIÓN DE TABLAS (SOLO PARA DESARROLLO INICIAL) ---
-# ¡ADVERTENCIA! Descomenta esta línea SOLO la primera vez que ejecutes la app
-# o cuando hagas cambios en los modelos. En producción, usa migraciones (Alembic).
+# Descomenta esta línea SOLO la primera vez que ejecutes la app o hagas cambios en los modelos.
+# ¡En producción, usa migraciones (Alembic)!
 # if MODULES_IMPORTED:
-#     create_tables() # Llama a la función definida en db_models.py
+#     try:
+#         create_tables()
+#         st.success("Tablas de base de datos verificadas/creadas.")
+#     except Exception as e:
+#         st.error(f"Error al intentar crear tablas: {e}")
+#         MODULES_IMPORTED = False
 
 # --- BARRA LATERAL DE NAVEGACIÓN ---
 st.sidebar.title("🔗 Enlaces 360")
@@ -41,14 +64,9 @@ modulo = st.sidebar.radio("Módulos:", menu_options)
 
 # --- LÓGICA DE NAVEGACIÓN Y CARGA DE MÓDULOS ---
 
-# Obtener una sesión de base de datos para usarla en los módulos
-db_session_generator = get_db() # Esto nos da un generador para la sesión
-db_session = next(db_session_generator) # Obtenemos la sesión actual
-
-if MODULES_IMPORTED:
+if MODULES_IMPORTED and db_session: # Solo procedemos si las importaciones y la BD están listas
     if modulo == "Administración":
-        # Llamamos a la función que muestra la interfaz del módulo de administración
-        display_admin_module(db_session)
+        display_admin_module(db_session) # Llamamos a la función del módulo de administración
         
     elif modulo == "Recepción":
         st.header("Módulo de Recepción")
@@ -76,20 +94,12 @@ if MODULES_IMPORTED:
         # Aquí llamarías a la función display_reports_module(db_session)
 
 else:
-    st.error("La aplicación no puede continuar debido a errores de importación.")
+    st.error("La aplicación no puede iniciarse correctamente debido a errores de importación o conexión a la base de datos.")
 
 # --- CIERRE DE LA SESIÓN DE BASE DE DATOS ---
-# Es importante cerrar la sesión al final de la ejecución del script de Streamlit
-# para liberar recursos.
+# Asegurarse de que la sesión se cierre si se llegó a abrir
 if db_session:
-    db_session.close()
-
-# --- CORRECCIÓN DEL ERROR DE SINTAXIS (EJEMPLO) ---
-# El error que viste '{' was never closed' ocurría en una línea como esta:
-# client_options = {c.id: c.name for c in clients} # ¡Esta es la línea correcta!
-# Si tu código original tenía algo como:
-# client_options = {c.id: c.name for c in clients # ¡Faltaba el '}' al final!
-# O si era una definición de diccionario mal formada.
-# La corrección se realiza dentro de las funciones de cada módulo (ej: en admin_module.py)
-# donde se necesiten crear diccionarios o listas.
-# En este archivo app.py, la navegación es la principal lógica.
+    try:
+        db_session.close()
+    except Exception as e:
+        st.error(f"Error al cerrar la sesión de base de datos: {e}")
