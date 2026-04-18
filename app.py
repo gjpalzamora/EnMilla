@@ -341,4 +341,4 @@ def display_admin_module(db: Session):
         
         # Obtener lista de clientes para el selectbox
         clients_for_product = get_clients(db)
-        client_options = {c.
+        client_options = {c.}
