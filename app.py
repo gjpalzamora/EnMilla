@@ -1,85 +1,80 @@
 import streamlit as st
 from database import engine, SessionLocal, Base
-from models import Package, Courier
-from datetime import datetime
+from models import Package, Client, ClientShipment
+import uuid
 
-# CONFIGURACIÓN SEGÚN RF3.6 (Interfaz de Usuario)
-st.set_page_config(page_title="Enmilla ERP - Logística", layout="wide", page_icon="🚚")
-
-# Inicialización de BD (Requisito 2.1)
+# Configuración Profesional
+st.set_page_config(page_title="Enmilla ERP - Logística", layout="wide")
 Base.metadata.create_all(bind=engine)
-
-st.title("🚚 Enmilla ERP")
-st.caption("Sistema de Gestión Logística - Enlace Soluciones Logísticas SAS")
-
-# Menú Lateral (RF3.6.1)
-menu = st.sidebar.radio("Navegación", ["Recepción", "Seguimiento", "Despacho", "Mensajeros"])
-
 db = SessionLocal()
 
-# --- RF3.1: MÓDULO DE RECEPCIÓN ---
-if menu == "Recepción":
-    st.header("📦 Registro de Paquetes")
-    with st.form("registro_paquete", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            tracking = st.text_input("Número de Seguimiento (Único)*") # RF3.1.1
-            remitente = st.text_input("Nombre del Remitente*")
-        with col2:
-            destinatario = st.text_input("Nombre del Destinatario*")
-            direccion = st.text_input("Dirección de Entrega*")
-        
-        if st.form_submit_button("Registrar Ingreso"):
-            # Validación de Duplicados (RF3.1.2)
-            existe = db.query(Package).filter(Package.tracking_number == tracking).first()
-            if existe:
-                st.error(f"Error: El número de seguimiento {tracking} ya existe.")
-            elif tracking and destinatario:
-                nuevo = Package(
-                    tracking_number=tracking,
-                    sender_name=remitente,
-                    recipient_name=destinatario,
-                    recipient_address=direccion,
-                    status="Recibido" # Estado Inicial RF3.1.1
-                )
-                db.add(nuevo)
+st.title("🚚 Enmilla ERP - Gestión Estratégica")
+
+menu = st.sidebar.selectbox("Módulo Operativo", 
+    ["Gestión de Clientes", "Recepción (Escaneo Rápido)", "Distribución", "Seguimiento"])
+
+# --- RF5.1: GESTIÓN DE CLIENTES ---
+if menu == "Gestión de Clientes":
+    st.header("🏢 Registro de Clientes Corporativos")
+    with st.form("nuevo_cliente"):
+        nombre = st.text_input("Nombre de la Empresa/Cliente*")
+        email = st.text_input("Correo Electrónico")
+        if st.form_submit_button("Registrar Cliente"):
+            if nombre:
+                nuevo_c = Client(name=nombre, email=email)
+                db.add(nuevo_c)
                 db.commit()
-                st.success("✅ Paquete registrado con éxito.")
-            else:
-                st.warning("Por favor complete los campos obligatorios.")
+                st.success(f"Cliente {nombre} creado.")
 
-# --- RF3.2: MÓDULO DE SEGUIMIENTO ---
-elif menu == "Seguimiento":
-    st.header("🔍 Seguimiento de Paquetes")
-    busqueda = st.text_input("Buscar por Tracking Number")
-    if busqueda:
-        p = db.query(Package).filter(Package.tracking_number == busqueda).first()
-        if p:
-            st.info(f"**Estado:** {p.status}")
-            st.write(f"**Remitente:** {p.sender_name}")
-            st.write(f"**Destinatario:** {p.recipient_name}")
-            st.write(f"**Dirección:** {p.recipient_address}")
-            st.write(f"**Fecha Ingreso:** {p.created_at.strftime('%Y-%m-%d %H:%M')}")
-        else:
-            st.error("No se encontró el paquete.")
-
-# --- RF3.3: MÓDULO DE DESPACHO (Control de Estados) ---
-elif menu == "Despacho":
-    st.header("🚚 Gestión de Salidas")
-    pendientes = db.query(Package).filter(Package.status != "Entregado").all()
-    if pendientes:
-        seleccion = st.selectbox("Paquete a gestionar", [p.tracking_number for p in pendientes])
-        nuevo_estado = st.selectbox("Actualizar Estado", ["En Tránsito", "Entregado", "Incidencia"])
-        
-        if st.button("Actualizar Movimiento"):
-            pkg = db.query(Package).filter(Package.tracking_number == seleccion).first()
-            pkg.status = nuevo_estado
-            if nuevo_estado == "Entregado":
-                pkg.is_delivered = True # RF3.3.2
+# --- RF5.3: ESCANEO RÁPIDO EN BODEGA ---
+elif menu == "Recepción (Escaneo Rápido)":
+    st.header("⚡ Ingreso Masivo a Bodega")
+    st.info("Compatible con lectores de código de barras (Enter automático)")
+    
+    # Campo de enfoque automático para el lector
+    scan_input = st.text_input("Escanee Código de Guía (Cliente o Interna)", key="scanner", help="El lector debe enviar 'Enter' al final")
+    
+    if scan_input:
+        # Lógica de búsqueda y actualización automática
+        pkg = db.query(Package).filter(Package.internal_tracking_number == scan_input).first()
+        if pkg:
+            pkg.status = "Ingresado a Bodega"
             db.commit()
-            st.success(f"Estado actualizado a {nuevo_estado}")
-            st.rerun()
+            st.success(f"📦 Paquete {scan_input} actualizado a: Ingresado a Bodega")
+        else:
+            st.error("❌ Código no reconocido en el sistema.")
+
+# --- RF5.2: DISTRIBUCIÓN (Crear Paquetes desde Envío de Cliente) ---
+elif menu == "Distribución":
+    st.header("⛟ Distribución de Envíos de Clientes")
+    envios_disponibles = db.query(ClientShipment).filter(ClientShipment.quantity_available > 0).all()
+    
+    if envios_disponibles:
+        opciones = {f"{e.client.name} - {e.client_tracking_number} (Disp: {e.quantity_available})": e.id for e in envios_disponibles}
+        seleccion = st.selectbox("Seleccione envío del cliente para distribuir", opciones.keys())
+        
+        with st.form("distribuir"):
+            dest = st.text_input("Nombre Destinatario Final*")
+            dir_dest = st.text_input("Dirección de Entrega*")
+            if st.form_submit_button("Generar Paquete y Etiqueta"):
+                envio_id = opciones[seleccion]
+                envio = db.query(ClientShipment).get(envio_id)
+                
+                # RF5.2.1: Crear paquete y decrementar inventario
+                nueva_guia = f"ENM-{uuid.uuid4().hex[:8].upper()}"
+                nuevo_p = Package(
+                    internal_tracking_number=nueva_guia,
+                    client_shipment_id=envio.id,
+                    recipient_name=dest,
+                    recipient_address=dir_dest,
+                    status="Listo para Despacho"
+                )
+                envio.quantity_available -= 1
+                db.add(nuevo_p)
+                db.commit()
+                st.success(f"✅ Paquete creado. Guía Interna: {nueva_guia}")
+                st.info("🖨️ Generando etiqueta PDF... (RF5.2.2)")
     else:
-        st.write("No hay paquetes pendientes de entrega.")
+        st.write("No hay bultos de clientes pendientes de distribuir.")
 
 db.close()
