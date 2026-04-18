@@ -11,7 +11,8 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- 2. MODELOS DE DATOS ---
+# --- 2. MODELOS DE DATOS (ORDENADOS TÉCNICAMENTE) ---
+
 class ClientB2B(Base):
     __tablename__ = "clients_b2b"
     id = Column(Integer, primary_key=True, index=True)
@@ -57,10 +58,15 @@ class Movement(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# --- 3. INTERFAZ STREAMLIT ---
-st.set_page_config(page_title="EnMilla ERP v3.0", layout="wide")
+# --- 3. INTERFAZ OPERATIVA ---
+st.set_page_config(page_title="EnMilla ERP v3.1", layout="wide")
 st.sidebar.title("🚚 Panel Enmilla")
-modulo = st.sidebar.radio("Ir a:", ["1. Administración", "2. Operaciones (Recibir)", "3. Despacho (Cargar)", "4. Gestión de Datos"])
+modulo = st.sidebar.radio("Ir a:", [
+    "1. Administración", 
+    "2. Operaciones (Recibir)", 
+    "3. Despacho (Cargar)", 
+    "4. Gestión de Datos"
+])
 
 # --- MÓDULO 1: ADMINISTRACIÓN ---
 if modulo == "1. Administración":
@@ -73,10 +79,12 @@ if modulo == "1. Administración":
             if st.form_submit_button("Guardar Cliente"):
                 db = SessionLocal()
                 try:
-                    db.add(ClientB2B(name=n, nit=nit)); db.commit()
+                    db.add(ClientB2B(name=n, nit=nit))
+                    db.commit()
                     st.success(f"Cliente {n} creado.")
                 except:
-                    db.rollback(); st.error("Error: NIT o Nombre ya existen.")
+                    db.rollback()
+                    st.error("Error: NIT o Nombre ya existen.")
                 db.close()
 
     with t2:
@@ -85,23 +93,28 @@ if modulo == "1. Administración":
             if st.form_submit_button("Guardar Mensajero"):
                 db = SessionLocal()
                 try:
-                    db.add(Courier(name=cn, plate=cp)); db.commit()
-                    st.success("Mensajero creado.")
+                    db.add(Courier(name=cn, plate=cp))
+                    db.commit()
+                    st.success("Mensajero registrado.")
                 except:
-                    db.rollback(); st.error("Error: Placa ya existe.")
+                    db.rollback()
+                    st.error("Error: Placa ya existe.")
                 db.close()
 
     with t3:
-        db = SessionLocal(); clis = db.query(ClientB2B).all()
+        db = SessionLocal()
+        clis = db.query(ClientB2B).all()
         if clis:
             with st.form("f_prod", clear_on_submit=True):
                 pn = st.text_input("Nombre del Producto")
                 c_sel = st.selectbox("Asociar a Cliente", [c.name for c in clis])
                 if st.form_submit_button("Enlazar Producto"):
                     target = db.query(ClientB2B).filter(ClientB2B.name == c_sel).first()
-                    db.add(Product(name=pn, client_id=target.id)); db.commit()
+                    db.add(Product(name=pn, client_id=target.id))
+                    db.commit()
                     st.success(f"Producto {pn} enlazado a {c_sel}")
-        else: st.warning("Cree un cliente primero.")
+        else:
+            st.warning("Debe crear un cliente antes de agregar productos.")
         db.close()
 
 # --- MÓDULO 2: OPERACIONES (RECEPCIÓN AUTOMÁTICA) ---
@@ -111,7 +124,7 @@ elif modulo == "2. Operaciones (Recibir)":
     clientes = db.query(ClientB2B).all()
     
     if not clientes:
-        st.warning("Debe crear un cliente en Administración.")
+        st.warning("⚠️ Primero cree un cliente en el Módulo de Administración.")
     else:
         c1, c2 = st.columns(2)
         with c1:
@@ -125,30 +138,12 @@ elif modulo == "2. Operaciones (Recibir)":
             guia = st.session_state.barcode.strip()
             if guia:
                 db_sub = SessionLocal()
-                if not db_sub.query(Package).filter(Package.tracking_number == guia).first():
+                existe = db_sub.query(Package).filter(Package.tracking_number == guia).first()
+                if not existe:
                     p = Package(tracking_number=guia, client_id=cli_obj.id)
-                    db_sub.add(p); db_sub.commit()
-                    db_sub.add(Movement(package_id=p.id, location="Bodega", description=f"Recibido - {p_nom}")); db_sub.commit()
-                    st.toast(f"✅ {guia} Recibido", icon="📦")
-                else: st.warning(f"Guía {guia} ya existe.")
-                db_sub.close()
-                st.session_state.barcode = ""
-
-        st.text_input("ESCANEE AQUÍ (Automático)", key="barcode", on_change=procesar_escaneo)
-
-# --- MÓDULO 3: DESPACHO ---
-elif modulo == "3. Despacho (Cargar)":
-    st.header("Salida a Ruta")
-    db = SessionLocal(); mens = db.query(Courier).filter(Courier.is_active==True).all()
-    if mens:
-        m_sel = st.selectbox("Seleccione Mensajero", [m.name for m in mens])
-        m_obj = db.query(Courier).filter(Courier.name == m_sel).first()
-        
-        def procesar_despacho():
-            g_des = st.session_state.barcode_out.strip()
-            if g_des:
-                db_d = SessionLocal()
-                pkg = db_d.query(Package).filter(Package.tracking_number == g_des).first()
-                if pkg:
-                    pkg.status = "En Ruta"
-                    db_d.add(Movement(package_id=pkg.
+                    db_sub.add(p)
+                    db_sub.commit()
+                    db_sub.add(Movement(
+                        package_id=p.id, 
+                        location="Bodega Barrios Unidos", 
+                        description=f
