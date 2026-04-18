@@ -5,13 +5,14 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 
-# --- CONFIGURACIÓN BASE DE DATOS ---
-DATABASE_URL = "sqlite:///enmilla_final.db"
+# --- 1. CONFIGURACIÓN DE BASE DE DATOS ---
+DATABASE_URL = "sqlite:///enmilla_v2.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- MODELOS (MÓDULO 1) ---
+# --- 2. MODELOS (ORDENADOS PARA EVITAR NAMEERROR) ---
+
 class ClientB2B(Base):
     __tablename__ = "clients_b2b"
     id = Column(Integer, primary_key=True, index=True)
@@ -59,42 +60,87 @@ class Movement(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# --- INTERFAZ ---
-st.set_page_config(page_title="EnMilla ERP v1.1", layout="wide")
-st.sidebar.title("🚚 Operaciones Enmilla")
-modulo = st.sidebar.radio("Navegación", [
-    "1. Administración (Crear)",
-    "2. Operaciones (Recibir)",
-    "3. Despacho (Cargar)",
+# --- 3. INTERFAZ OPERATIVA ---
+st.set_page_config(page_title="EnMilla ERP v2.0", layout="wide")
+st.sidebar.title("🚚 Panel Enmilla")
+modulo = st.sidebar.radio("Ir a:", [
+    "1. Administración", 
+    "2. Operaciones (Recibir)", 
+    "3. Despacho (Cargar)", 
     "4. Gestión de Datos (Ver/Editar)"
 ])
 
-# --- MÓDULO 4: GESTIÓN DE DATOS (VER Y EDITAR) ---
-if modulo == "4. Gestión de Datos (Ver/Editar)":
-    st.header("Visualización y Edición de Maestros")
-    edit_tab1, edit_tab2 = st.tabs(["Clientes B2B", "Mensajeros"])
+# --- MÓDULO 1: ADMINISTRACIÓN ---
+if modulo == "1. Administración":
+    st.header("Registro de Maestros")
+    t1, t2, t3 = st.tabs(["Clientes B2B", "Mensajeros", "Productos"])
+    
+    with t1:
+        with st.form("f_cli", clear_on_submit=True):
+            n = st.text_input("Nombre Empresa"); nit = st.text_input("NIT")
+            if st.form_submit_button("Guardar Cliente"):
+                db = SessionLocal()
+                try:
+                    db.add(ClientB2B(name=n, nit=nit)); db.commit()
+                    st.success("Cliente creado.")
+                except:
+                    db.rollback(); st.error("Error: NIT o Nombre ya existen.")
+                db.close()
 
-    with edit_tab1:
-        db = SessionLocal()
-        clientes = db.query(ClientB2B).all()
-        if clientes:
-            df_cli = pd.DataFrame([{"ID": c.id, "Nombre": c.name, "NIT": c.nit} for c in clientes])
-            st.dataframe(df_cli, use_container_width=True)
-            
-            st.subheader("Editar Cliente")
-            cli_to_edit = st.selectbox("Seleccione cliente para modificar", [c.name for c in clientes])
-            target_cli = db.query(ClientB2B).filter(ClientB2B.name == cli_to_edit).first()
-            
-            with st.form("edit_cli_form"):
-                new_n = st.text_input("Nuevo Nombre", value=target_cli.name)
-                new_nit = st.text_input("Nuevo NIT", value=target_cli.nit)
-                if st.form_submit_button("Actualizar Cliente"):
-                    try:
-                        target_cli.name = new_n
-                        target_cli.nit = new_nit
-                        db.commit()
-                        st.success("Información de cliente actualizada.")
-                        st.rerun()
-                    except Exception as e:
-                        db.rollback()
-                        st.error("No se pudo actualizar. Pos
+    with t2:
+        with st.form("f_cou", clear_on_submit=True):
+            cn = st.text_input("Nombre Mensajero"); cp = st.text_input("Placa")
+            if st.form_submit_button("Guardar Mensajero"):
+                db = SessionLocal()
+                try:
+                    db.add(Courier(name=cn, plate=cp)); db.commit()
+                    st.success("Mensajero creado.")
+                except:
+                    db.rollback(); st.error("Error: Placa ya existe.")
+                db.close()
+
+    with t3:
+        db = SessionLocal(); clis = db.query(ClientB2B).all()
+        with st.form("f_prod"):
+            pn = st.text_input("Nombre Producto")
+            c_sel = st.selectbox("Cliente Propietario", [c.name for c in clis])
+            if st.form_submit_button("Enlazar"):
+                target = db.query(ClientB2B).filter(ClientB2B.name == c_sel).first()
+                db.add(Product(name=pn, client_id=target.id)); db.commit()
+                st.success("Producto enlazado.")
+        db.close()
+
+# --- MÓDULO 2: OPERACIONES ---
+elif modulo == "2. Operaciones (Recibir)":
+    st.header("Entrada de Mercancía")
+    with st.form("f_rec", clear_on_submit=True):
+        track = st.text_input("ESCANEE TRACKING")
+        if st.form_submit_button("INGRESAR") or track:
+            db = SessionLocal()
+            if not db.query(Package).filter(Package.tracking_number == track).first():
+                p = Package(tracking_number=track); db.add(p); db.commit()
+                db.add(Movement(package_id=p.id, location="Bodega", description="Recibido")); db.commit()
+                st.toast(f"Guía {track} en bodega")
+            db.close()
+
+# --- MÓDULO 3: DESPACHO ---
+elif modulo == "3. Despacho (Cargar)":
+    st.header("Asignación a Mensajeros")
+    db = SessionLocal(); mens = db.query(Courier).all()
+    if mens:
+        m_sel = st.selectbox("Mensajero", [m.name for m in mens])
+        m_obj = db.query(Courier).filter(Courier.name == m_sel).first()
+        with st.form("f_des", clear_on_submit=True):
+            t_des = st.text_input("Escanee para salida")
+            if st.form_submit_button("DESPACHAR"):
+                pkg = db.query(Package).filter(Package.tracking_number == t_des).first()
+                if pkg:
+                    pkg.status = "En Ruta"
+                    db.add(Movement(package_id=pkg.id, courier_id=m_obj.id, location="En Ruta", description="Cargado")); db.commit()
+                    st.success("Despachado.")
+    db.close()
+
+# --- MÓDULO 4: GESTIÓN DE DATOS ---
+elif modulo == "4. Gestión de Datos (Ver/Editar)":
+    st.header("Control de Información")
+    et1, et2 = st.tabs(["Listado Clientes", "Listado Mensajeros"])
