@@ -27,9 +27,8 @@ class Product(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
     client_id = Column(Integer, ForeignKey("clients_b2b.id"))
-    price_to_client = Column(Float, default=0.0)  # Lo que nos paga el cliente
-    cost_to_courier = Column(Float, default=0.0)  # Lo que le pagamos al mensajero
-    
+    price_to_client = Column(Float, default=0.0)
+    cost_to_courier = Column(Float, default=0.0)
     client = relationship("ClientB2B", back_populates="products")
 
 class Courier(Base):
@@ -47,13 +46,10 @@ class Package(Base):
     client_id = Column(Integer, ForeignKey("clients_b2b.id"))
     courier_id = Column(Integer, ForeignKey("couriers.id"), nullable=True)
     product_name = Column(String(255))
-    # Campos financieros capturados al momento del ingreso
     income = Column(Float, default=0.0)
     expense = Column(Float, default=0.0)
-    
-    status = Column(String(50), default="BODEGA") # BODEGA, EN RUTA, ENTREGADO, NOVEDAD
+    status = Column(String(50), default="BODEGA")
     created_at = Column(DateTime, default=datetime.utcnow)
-    
     client = relationship("ClientB2B", back_populates="packages")
     courier = relationship("Courier", back_populates="packages")
     movements = relationship("Movement", back_populates="package", cascade="all, delete-orphan")
@@ -76,7 +72,7 @@ def to_excel(df):
     return output.getvalue()
 
 # --- 4. INTERFAZ PRINCIPAL ---
-st.set_page_config(page_title="EnMilla ERP v14.2", layout="wide")
+st.set_page_config(page_title="EnMilla ERP v14.3", layout="wide")
 st.sidebar.title("🚚 Panel EnMilla")
 modulo = st.sidebar.radio("Ir a:", [
     "1. Administración", 
@@ -88,4 +84,15 @@ modulo = st.sidebar.radio("Ir a:", [
 # --- MÓDULO 1: ADMINISTRACIÓN ---
 if modulo == "1. Administración":
     st.header("Gestión de Maestros")
-    t1, t2
+    # CORRECCIÓN AQUÍ: Se agregan t3 para que coincida con el número de pestañas
+    t1, t2, t3 = st.tabs(["Clientes B2B", "Mensajeros", "Crear Producto"])
+    
+    with t1:
+        with st.form("form_cliente", clear_on_submit=True):
+            n = st.text_input("Nombre de la Empresa").upper()
+            nit = st.text_input("NIT")
+            if st.form_submit_button("Registrar Cliente"):
+                with Session() as db:
+                    try:
+                        db.add(ClientB2B(name=n, nit=nit))
+                        db.commit()
