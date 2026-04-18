@@ -135,7 +135,5 @@ modulo = st.sidebar.radio("Ir a:", [
 
 # --- MÓDULO 1: ADMINISTRACIÓN (MAESTROS) ---
 if modulo == "1. Administración (Maestros)":
-    st.header("Gestión de Maestros") # Corrección: Se asegura que la cadena de texto esté correctamente cerrada.
-    # Se han añadido pestañas para edición dentro del mismo módulo de administración
-    # Corrección: Se han revisado las cadenas de texto de las pestañas para asegurar la sintaxis correcta.
-    tab_cli, tab_cou, tab_prod, tab_edit_cli, tab_edit_cou, tab_edit_prod =
+    st.header("Gest
+              
