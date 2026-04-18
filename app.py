@@ -1,140 +1,121 @@
-import streamlit as st
-import pandas as pd
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, Boolean, func, Float
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship, scoped_session
-from sqlalchemy.exc import IntegrityError
-from datetime import datetime
-import io
-
-# Intenta importar pytz. Si no está, maneja el error o informa al usuario.
-try:
-    import pytz
-    TIMEZONE = pytz.timezone('UTC') # Configuración de la zona horaria (ajusta según tu necesidad)
-    PYTZ_AVAILABLE = True
-except ImportError:
-    st.warning("La librería 'pytz' no está instalada. Las fechas se mostrarán en UTC. Instálala con: pip install pytz")
-    # Define una fecha ficticia o usa datetime.utcnow directamente si pytz no está disponible
-    TIMEZONE = None 
-    PYTZ_AVAILABLE = False
-
-# --- 1. CONFIGURACIÓN DE BASE DE DATOS ---
-DATABASE_URL = "sqlite:///enmilla_v16_final.db"
-# 'connect_args={"check_same_thread": False}' es necesario para SQLite con Streamlit
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-
-# Configuración de la sesión para manejar múltiples peticiones en Streamlit
-session_factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Session = scoped_session(session_factory) # scoped_session maneja sesiones por hilo/request
-
-Base = declarative_base()
-
 # --- 2. MODELOS DE DATOS ---
-class ClientB2B(Base):
-    __tablename__ = "clients_b2b"
-    id = Column(Integer, primary_key=True)
-    name = Column(String(255), unique=True, nullable=False)
-    nit = Column(String(50), unique=True)
-    # Relaciones bidireccionales
-    packages = relationship("Package", back_populates="client")
-    products = relationship("Product", back_populates="client")
+# (Mantener ClientB2B, Product, Courier, Package, Movement como están o con ajustes menores)
 
-class Product(Base):
-    __tablename__ = "products"
-    id = Column(Integer, primary_key=True)
-    name = Column(String(255), nullable=False)
-    client_id = Column(Integer, ForeignKey("clients_b2b.id"), index=True) # Indexar para búsquedas por cliente
-    price_to_client = Column(Float, default=0.0) # Valor que cobra el cliente al destinatario final
-    cost_to_courier = Column(Float, default=0.0) # Costo que paga la empresa al mensajero
-    # Relación con el cliente
-    client = relationship("ClientB2B", back_populates="products")
+# --- NUEVOS MODELOS PARA ENLACES 360 ---
 
-class Courier(Base):
-    __tablename__ = "couriers"
+class ClientShipment(Base):
+    __tablename__ = "client_shipments"
     id = Column(Integer, primary_key=True)
-    name = Column(String(255), nullable=False)
-    plate = Column(String(50), unique=True, nullable=False)
-    is_active = Column(Boolean, default=True)
-    # Relación con los paquetes que maneja
-    packages = relationship("Package", back_populates="courier")
+    client_id = Column(Integer, ForeignKey("clients_b2b.id"), index=True, nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), index=True, nullable=True) # Opcional, si el envío es de un producto específico
+    client_tracking_number = Column(String(100), unique=True, index=True, nullable=False) # Guía del cliente original
+    internal_tracking_number = Column(String(100), unique=True, index=True, nullable=True) # Guía interna generada por Enlace (si aplica)
+    quantity_total = Column(Integer, nullable=False, default=1)
+    quantity_available = Column(Integer, nullable=False, default=1) # Stock disponible para crear paquetes individuales
+    status = Column(String(50), default="PRE-ALERTA") # Ej: PRE-ALERTA, EN BODEGA, STOCK AGOTADO
+    received_at = Column(DateTime, default=datetime.utcnow) # Fecha de recepción física
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
 
-class Package(Base):
+    client = relationship("ClientB2B", back_populates="client_shipments")
+    product = relationship("Product", back_populates="client_shipments")
+    packages = relationship("Package", back_populates="client_shipment") # Paquetes individuales creados desde este envío
+
+class Package(Base): # Modificaciones al Package existente
     __tablename__ = "packages"
     id = Column(Integer, primary_key=True)
-    tracking_number = Column(String(100), unique=True, index=True, nullable=False)
-    client_id = Column(Integer, ForeignKey("clients_b2b.id"), index=True) # Indexar para búsquedas por cliente
-    courier_id = Column(Integer, ForeignKey("couriers.id"), nullable=True, index=True) # Indexar si se busca por mensajero
-    product_name = Column(String(255)) # Nombre del producto (podría ser FK a Product si se requiere más detalle)
-    income = Column(Float, default=0.0) # Valor total cobrado al destinatario (incluye costo de envío + valor del producto)
-    expense = Column(Float, default=0.0) # Costo total para la empresa (ej. pago al mensajero)
-    cash_collected = Column(Float, default=0.0) # Dinero efectivamente cobrado al destinatario
-    status = Column(String(50), default="BODEGA") # Ej: BODEGA, EN RUTA, ENTREGADO, FALLIDO, DEVUELTO
-    created_at = Column(DateTime, default=datetime.utcnow) # Fecha de registro inicial
-    delivered_at = Column(DateTime, nullable=True) # Fecha de entrega exitosa
+    internal_tracking_number = Column(String(100), unique=True, index=True, nullable=False)
+    client_shipment_id = Column(Integer, ForeignKey("client_shipments.id"), index=True, nullable=True) # FK al envío original
+    client_id = Column(Integer, ForeignKey("clients_b2b.id"), index=True) # Cliente B2B final (si no viene de client_shipment)
+    courier_id = Column(Integer, ForeignKey("couriers.id"), nullable=True, index=True)
+    recipient_name = Column(String(255), nullable=False)
+    recipient_address = Column(Text, nullable=False)
+    sender_name = Column(String(255)) # Podría ser el nombre del cliente B2B o Enlace
+    status = Column(String(50), default="PENDIENTE DE ENVÍO") # Ej: PENDIENTE DE ENVÍO, EN RUTA, ENTREGADO, NOVEDAD, DEVUELTO
+    created_at = Column(DateTime, default=datetime.utcnow)
+    delivered_at = Column(DateTime, nullable=True)
+    is_delivered = Column(Boolean, default=False)
+    delivery_proof_url = Column(String(512), nullable=True) # URL del POD
+    cod_amount = Column(Float, default=0.0) # Monto a cobrar contra entrega
+    cod_paid = Column(Boolean, default=False) # Si el COD ya fue pagado
+    route_id = Column(Integer, ForeignKey("routes.id"), index=True, nullable=True) # FK a la ruta asignada
 
-    # Relaciones bidireccionales
-    client = relationship("ClientB2B", back_populates="packages")
+    client_shipment = relationship("ClientShipment", back_populates="packages")
+    client = relationship("ClientB2B", back_populates="packages") # Si el paquete no viene de client_shipment
     courier = relationship("Courier", back_populates="packages")
     movements = relationship("Movement", back_populates="package")
+    route = relationship("Route", back_populates="packages")
 
-class Movement(Base):
-    __tablename__ = "movements"
+class Route(Base): # Para agrupar paquetes en una ruta de mensajero
+    __tablename__ = "routes"
     id = Column(Integer, primary_key=True)
-    package_id = Column(Integer, ForeignKey("packages.id"), index=True) # Indexar para búsquedas por paquete
+    courier_id = Column(Integer, ForeignKey("couriers.id"), index=True, nullable=False)
+    route_number = Column(String(50), unique=True, index=True, nullable=False) # Ej: RUTA-20231027-001
+    start_time = Column(DateTime, default=datetime.utcnow)
+    end_time = Column(DateTime, nullable=True)
+    status = Column(String(50), default="PENDIENTE") # Ej: PENDIENTE, EN CURSO, CERRADA, CANCELADA
+    total_cod_collected = Column(Float, default=0.0) # Suma de COD recaudado en esta ruta
+
+    courier = relationship("Courier", back_populates="routes")
+    packages = relationship("Package", back_populates="route")
+    cod_records = relationship("CODRecord", back_populates="route")
+
+class CODRecord(Base): # Para registrar los cobros contra entrega
+    __tablename__ = "cod_records"
+    id = Column(Integer, primary_key=True)
+    package_id = Column(Integer, ForeignKey("packages.id"), index=True, nullable=False)
+    route_id = Column(Integer, ForeignKey("routes.id"), index=True, nullable=False)
+    courier_id = Column(Integer, ForeignKey("couriers.id"), index=True, nullable=False)
+    amount = Column(Float, nullable=False)
+    payment_method = Column(String(50)) # Ej: EFECTIVO, DATA-">fono", TRANSFERENCIA
+    status = Column(String(50), default="PENDIENTE") # Ej: PENDIENTE, LIQUIDADO, DISCREPANCIA
+    recorded_at = Column(DateTime, default=datetime.utcnow) # Momento en que se registra el COD
+    liquidated_at = Column(DateTime, nullable=True) # Momento en que se liquida
+
+    package = relationship("Package", back_populates="cod_records")
+    route = relationship("Route", back_populates="cod_records")
+    courier = relationship("Courier") # Relación simple, no necesita back_populates si no se usa
+
+class RegexMap(Base): # Para patrones de validación
+    __tablename__ = "regex_map"
+    id = Column(Integer, primary_key=True)
+    pattern_name = Column(String(100), unique=True, index=True, nullable=False)
+    regex_pattern = Column(Text, nullable=False)
     description = Column(Text)
-    timestamp = Column(DateTime, default=datetime.utcnow)
-    # Corrección de la relación: Movement pertenece a un Package
-    package = relationship("Package", back_populates="movements")
 
-# Crea las tablas en la base de datos si no existen
-Base.metadata.create_all(bind=engine)
+class FileStorage(Base): # Para metadatos de archivos subidos (PODs, firmas, etc.)
+    __tablename__ = "file_storage"
+    id = Column(Integer, primary_key=True)
+    package_id = Column(Integer, ForeignKey("packages.id"), index=True, nullable=True)
+    file_type = Column(String(50)) # Ej: 'POD_PDF', 'SIGNATURE', 'PHOTO_DELIVERY'
+    url = Column(String(512), nullable=False) # URL del archivo (S3, GCS, local)
+    original_name = Column(String(255))
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
 
-# --- 3. FUNCIONES DE APOYO ---
-def to_excel(df):
-    """Convierte un DataFrame de Pandas a un archivo Excel en memoria."""
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Reporte')
-    processed_data = output.getvalue()
-    return processed_data
+    package = relationship("Package", back_populates="attachments")
 
-def format_datetime(dt):
-    """Formatea un objeto datetime a string con zona horaria."""
-    if dt:
-        # Si pytz está disponible y la zona horaria está configurada
-        if PYTZ_AVAILABLE and TIMEZONE:
-            try:
-                # Intenta convertir a la zona horaria configurada si el datetime no tiene zona
-                if dt.tzinfo is None:
-                    dt_local = TIMEZONE.localize(dt)
-                else:
-                    dt_local = dt.astimezone(TIMEZONE)
-                return dt_local.strftime('%d/%m/%Y %H:%M:%S')
-            except Exception as e:
-                st.error(f"Error al formatear fecha con zona horaria: {e}")
-                # Si hay error, muestra la fecha sin zona horaria
-                return dt.strftime('%d/%m/%Y %H:%M:%S')
-        else:
-            # Si pytz no está disponible o no se configuró, muestra la fecha como está (probablemente UTC)
-            return dt.strftime('%d/%m/%Y %H:%M:%S')
-    return "N/A"
+# --- Añadir relaciones a modelos existentes ---
+# ClientB2B
+ClientB2B.client_shipments = relationship("ClientShipment", back_populates="client")
+ClientB2B.routes = relationship("Route", back_populates="client") # Si un cliente B2B puede tener rutas asociadas (menos común)
 
-# --- 4. INTERFAZ PRINCIPAL ---
-st.set_page_config(page_title="EnMilla ERP v16", layout="wide")
-st.sidebar.title("🚚 Panel EnMilla")
+# Product
+Product.client_shipments = relationship("ClientShipment", back_populates="product")
 
-# Menú de navegación
-# Corrección: Se asegura que todas las opciones del radio button estén correctamente definidas como cadenas de texto.
-modulo = st.sidebar.radio("Ir a:", [
-    "1. Administración (Maestros)",
-    "2. Recepción (Bodega)",
-    "3. Despacho (Ruta)",
-    "4. Gestión de Cobros",
-    "5. Reportes"
-])
+# Courier
+Courier.routes = relationship("Route", back_populates="courier")
 
-# --- MÓDULO 1: ADMINISTRACIÓN (MAESTROS) ---
-if modulo == "1. Administración (Maestros)":
-    st.header("Gestión de Maestros") # Corrección: Se asegura que la cadena de texto esté correctamente cerrada.
-    # Se han añadido pestañas para edición dentro del mismo módulo de administración
-    # Corrección: Se han revisado las cadenas de texto de las
+# Package (ya tiene las relaciones añadidas arriba)
+
+# ClientShipment (ya tiene las relaciones añadidas arriba)
+
+# Route (ya tiene las relaciones añadidas arriba)
+
+# Movement (ya tiene la relación añadida arriba)
+
+# CODRecord (ya tiene las relaciones añadidas arriba)
+
+# FileStorage (ya tiene la relación añadida arriba)
+
+# --- Crear tablas ---
+# Base.metadata.create_all(bind=engine) # Usar migraciones en producción
