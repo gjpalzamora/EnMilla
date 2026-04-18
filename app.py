@@ -7,7 +7,7 @@ from datetime import datetime
 import io
 
 # --- 1. CONFIGURACIÓN DE BASE DE DATOS ---
-DATABASE_URL = "sqlite:///enmilla_v15_final.db"
+DATABASE_URL = "sqlite:///enmilla_v16_final.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 session_factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Session = scoped_session(session_factory)
@@ -55,7 +55,7 @@ class Package(Base):
     
     client = relationship("ClientB2B", back_populates="packages")
     courier = relationship("Courier", back_populates="packages")
-    movements = relationship("Movement", back_populates="package", cascade="all, delete-orphan")
+    movements = relationship("Movement", back_populates="package")
 
 class Movement(Base):
     __tablename__ = "movements"
@@ -75,73 +75,25 @@ def to_excel(df):
     return output.getvalue()
 
 # --- 4. INTERFAZ PRINCIPAL ---
-st.set_page_config(page_title="EnMilla ERP v15.1", layout="wide")
+st.set_page_config(page_title="EnMilla ERP v16", layout="wide")
 st.sidebar.title("🚚 Panel EnMilla")
 modulo = st.sidebar.radio("Ir a:", [
     "1. Administración", 
     "2. Recepción (Bodega)", 
     "3. Despacho (Ruta)", 
-    "4. Entregas y Recaudos",
-    "5. Novedades",
-    "6. Reportes"
+    "4. Reportes"
 ])
 
-# --- MÓDULO 1: ADMINISTRACIÓN ---
+# --- MÓDULO 1: ADMINISTRACIÓN (MAESTROS) ---
 if modulo == "1. Administración":
     st.header("Gestión de Maestros")
-    t1, t2, t3 = st.tabs(["🏢 Clientes", "🛵 Mensajeros", "📦 Productos"])
+    tab_cli, tab_cou, tab_prod = st.tabs(["🏢 Clientes", "🛵 Mensajeros", "📦 Productos"])
     
-    with t1:
-        with st.form("f_cli", clear_on_submit=True):
-            n = st.text_input("Nombre Empresa").upper()
-            nit = st.text_input("NIT")
-            if st.form_submit_button("Crear Cliente"):
+    with tab_cli:
+        with st.form("form_cliente", clear_on_submit=True):
+            nombre_cli = st.text_input("Nombre de la Empresa").upper()
+            nit_cli = st.text_input("NIT")
+            if st.form_submit_button("Guardar Cliente"):
                 with Session() as db:
                     try:
-                        db.add(ClientB2B(name=n, nit=nit))
-                        db.commit()
-                        st.success("✅ Guardado")
-                    except Exception as e:
-                        db.rollback()
-                        st.error(f"❌ Error: {e}")
-
-    with t2:
-        with st.form("f_cou", clear_on_submit=True):
-            cn = st.text_input("Nombre Mensajero").upper()
-            cp = st.text_input("Placa").upper()
-            if st.form_submit_button("Registrar Mensajero"):
-                with Session() as db:
-                    try:
-                        db.add(Courier(name=cn, plate=cp))
-                        db.commit()
-                        st.success("✅ Registrado")
-                    except Exception as e:
-                        db.rollback()
-                        st.error(f"❌ Error: {e}")
-
-    with t3:
-        # ESTA ES LA FUNCIÓN QUE PEDISTE: CREAR PRODUCTO
-        with Session() as db:
-            clis = db.query(ClientB2B).all()
-            if clis:
-                with st.form("f_prod", clear_on_submit=True):
-                    c_sel = st.selectbox("Asociar a Cliente", [c.name for c in clis])
-                    p_n = st.text_input("Nombre del Servicio (Ej: Express)").upper()
-                    c1, c2 = st.columns(2)
-                    p_c = c1.number_input("Cobro al Cliente ($)", min_value=0.0)
-                    p_m = c2.number_input("Pago al Mensajero ($)", min_value=0.0)
-                    if st.form_submit_button("Guardar Producto"):
-                        target = db.query(ClientB2B).filter(ClientB2B.name == c_sel).first()
-                        db.add(Product(name=p_n, client_id=target.id, price_to_client=p_c, cost_to_courier=p_m))
-                        db.commit()
-                        st.success(f"✅ Producto '{p_n}' creado para {c_sel}")
-            else:
-                st.warning("Primero debe crear un cliente en la pestaña de al lado.")
-
-# --- MÓDULO 2: RECEPCIÓN ---
-elif modulo == "2. Recepción (Bodega)":
-    st.header("Entrada de Mercancía")
-    with Session() as db:
-        clis = db.query(ClientB2B).all()
-        if clis:
-            c_name = st.
+                        db.add(ClientB2
