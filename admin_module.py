@@ -4,62 +4,56 @@ from sqlalchemy.orm import Session
 from db_models import ClientB2B, Courier, Product
 
 def display_admin_module(db: Session):
-    st.header("⚙️ Configuración Maestra")
-    tabs = st.tabs(["Mensajeros", "Clientes", "Productos", "🗂️ Base de Datos"])
+    st.header("⚙️ Configuración EnMilla")
+    tabs = st.tabs(["Mensajeros", "Clientes B2B", "Productos", "🗂️ Gestión de Datos"])
 
-    with tabs[0]: # Mensajeros
-        with st.form("add_courier", clear_on_submit=True):
+    with tabs[0]:
+        st.subheader("Registrar Mensajero")
+        with st.form("f_courier", clear_on_submit=True):
             n = st.text_input("Nombre Completo")
             c = st.text_input("Cédula")
             p = st.text_input("Teléfono")
-            if st.form_submit_button("Registrar"):
-                db.add(Courier(name=n, document_id=c, phone=p))
-                db.commit()
-                st.success(f"Mensajero {n} registrado.")
+            if st.form_submit_button("Guardar"):
+                if n and c:
+                    db.add(Courier(name=n, document_id=c, phone=p))
+                    db.commit()
+                    st.success(f"Mensajero {n} registrado.")
 
-    with tabs[1]: # Clientes
-        with st.form("add_client", clear_on_submit=True):
-            cn = st.text_input("Empresa")
+    with tabs[1]:
+        st.subheader("Registrar Cliente Corporativo")
+        with st.form("f_client", clear_on_submit=True):
+            cn = st.text_input("Nombre de Empresa")
             nit = st.text_input("NIT")
-            if st.form_submit_button("Crear Cliente"):
+            if st.form_submit_button("Registrar Cliente"):
                 db.add(ClientB2B(name=cn, nit=nit))
                 db.commit()
                 st.success("Cliente guardado.")
 
-    with tabs[2]: # Productos
+    with tabs[2]:
+        st.subheader("Asignar Productos")
         clientes = db.query(ClientB2B).all()
-        if not clientes:
-            st.warning("Cree un cliente primero.")
-        else:
+        if clientes:
             cli_map = {cli.name: cli.id for cli in clientes}
-            with st.form("add_product", clear_on_submit=True):
-                pn = st.text_input("Nombre del Producto (ej: Sobre, Caja)")
-                target_cli = st.selectbox("Asignar a:", options=list(cli_map.keys()))
-                if st.form_submit_button("Vincular Producto"):
-                    db.add(Product(name=pn, client_id=cli_map[target_cli]))
+            with st.form("f_prod", clear_on_submit=True):
+                pn = st.text_input("Nombre del Producto")
+                sel_cli = st.selectbox("Asociar a Cliente:", options=list(cli_map.keys()))
+                if st.form_submit_button("Guardar Producto"):
+                    db.add(Product(name=pn, client_id=cli_map[sel_cli]))
                     db.commit()
-                    st.success("Producto vinculado.")
+                    st.success("Producto registrado.")
 
-    with tabs[3]: # Visualización y Eliminación
-        st.subheader("Control de Registros")
-        sub_tab = st.selectbox("Ver tabla de:", ["Mensajeros", "Clientes", "Productos"])
-        
-        if sub_tab == "Mensajeros":
-            items = db.query(Courier).all()
-            if items:
-                df = pd.DataFrame([{"ID": i.id, "Nombre": i.name, "Documento": i.document_id} for i in items])
-                st.table(df)
-                to_del = st.number_input("ID a eliminar", min_value=0, step=1)
-                if st.button("Eliminar Mensajero"):
-                    item = db.query(Courier).get(to_del)
-                    if item:
-                        db.delete(item)
-                        db.commit()
-                        st.rerun()
-
-        elif sub_tab == "Clientes":
-            items = db.query(ClientB2B).all()
-            if items:
-                df = pd.DataFrame([{"ID": i.id, "Empresa": i.name, "NIT": i.nit} for i in items])
-                st.table(df)
-                # Lógica similar para eliminar...
+    with tabs[3]:
+        st.subheader("Auditoría de Registros")
+        tipo = st.radio("Ver tabla de:", ["Mensajeros", "Clientes", "Productos"], horizontal=True)
+        if tipo == "Mensajeros":
+            data = db.query(Courier).all()
+            if data:
+                st.dataframe(pd.DataFrame([{"ID": m.id, "Nombre": m.name, "ID": m.document_id} for m in data]), use_container_width=True)
+        elif tipo == "Clientes":
+            data = db.query(ClientB2B).all()
+            if data:
+                st.dataframe(pd.DataFrame([{"ID": c.id, "Empresa": c.name, "NIT": c.nit} for c in data]), use_container_width=True)
+        elif tipo == "Productos":
+            data = db.query(Product).all()
+            if data:
+                st.dataframe(pd.DataFrame([{"ID": p.id, "Producto": p.name, "Dueño": p.client.name} for p in data]), use_container_width=True)
