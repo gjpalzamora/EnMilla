@@ -1,48 +1,56 @@
 import streamlit as st
-from db_models import get_db, create_tables, Courier
-from logica_operativa import procesar_escaneo
-from admin_module import display_admin_module
+import pandas as pd
+from datetime import datetime
+from database import obtener_datos, registrar_fila
 
-st.set_page_config(page_title="EnMilla Logistics", layout="wide")
+# --- CONFIGURACIÓN E IDENTIDAD ---
+st.set_page_config(page_title="EnMilla - Logística", layout="wide")
 
-# Sidebar Corporativo
-st.sidebar.image("https://raw.githubusercontent.com/gjpalzamora/enmilla/main/log%20fondo%20blancojpg.jpg", use_container_width=True)
-st.sidebar.title("EnMilla")
-st.sidebar.info("Enlaces Soluciones Logísticas SAS\n\nNIT: 901.939.284-4\n\nBogotá, Colombia")
+st.sidebar.markdown(f"""
+    ### 🚚 EnMilla v2.0
+    **Enlaces Soluciones Logísticas SAS**
+    NIT: 901.939.284-4
+    *Bogotá, Colombia*
+    ---
+""")
 
-try:
-    db = next(get_db())
-    create_tables()
-except Exception as e:
-    st.error("Error de conexión. Reiniciando...")
-    st.stop()
+menu = st.sidebar.radio("Operación", ["Administración", "Recepción (Ingreso)", "Despacho (Salida)"])
 
-menu = st.sidebar.radio("Menú:", ["Administración", "Recepción (Ingreso)", "Despacho (Salida)"])
+# --- LÓGICA DE DESPACHO (SALIDA) ---
+if menu == "Despacho (Salida)":
+    st.header("🚚 Despacho a Ruta")
+    
+    # Traemos mensajeros desde Google Sheets
+    mensajeros = obtener_datos("Mensajeros")
+    if mensajeros:
+        df_m = pd.DataFrame(mensajeros)
+        m_nombre = st.selectbox("Seleccione Mensajero:", df_m['Nombre'])
+        m_datos = df_m[df_m['Nombre'] == m_nombre].iloc[0]
+        
+        st.success(f"Asignado a: {m_nombre} | Vehículo: {m_datos['Vehiculo']} | Placa: {m_datos['Placa']}")
+        
+        with st.form("salida", clear_on_submit=True):
+            guia = st.text_input("ESCANEAR GUÍA PARA SALIDA:")
+            if st.form_submit_button("Confirmar Despacho"):
+                ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                # Registramos en la pestaña 'Despacho' de su Google Sheet
+                registrar_fila("Despacho", [guia, m_nombre, m_datos['Placa'], ahora, "EN RUTA"])
+                st.balloons()
+                st.info(f"Guía {guia} asignada correctamente.")
+    else:
+        st.error("No hay mensajeros registrados en Google Sheets.")
 
-if menu == "Administración":
-    display_admin_module(db)
+# --- LÓGICA DE RECEPCIÓN (INGRESO) ---
 elif menu == "Recepción (Ingreso)":
-    st.title("📥 Ingreso")
-    with st.form("in", clear_on_submit=True):
-        guia = st.text_input("Guía:")
-        if st.form_submit_button("Ok"):
-            res = procesar_escaneo(db, guia, "Admin", "INGRESO")
-            st.success(res["message"]) if res["status"] == "OK" else st.error(res["message"])
-elif menu == "Despacho (Salida)":
-    st.title("🚚 Despacho")
-    try:
-        m = db.query(Courier).all()
-        if m:
-            m_map = {i.name: i.id for i in m}
-            sel = st.selectbox("Mensajero:", list(m_map.keys()))
-            with st.form("out", clear_on_submit=True):
-                g_out = st.text_input("Guía:")
-                if st.form_submit_button("Enviar"):
-                    res = procesar_escaneo(db, g_out, "Admin", "DESPACHO", m_map[sel])
-                    st.success(res["message"]) if res["status"] == "OK" else st.warning(res["message"])
-        else:
-            st.warning("Cree mensajeros primero.")
-    except Exception:
-        st.error("Error de base de datos en Despacho.")
-
-db.close()
+    st.header("📥 Ingreso a Bodega")
+    clientes = obtener_datos("Clientes")
+    if clientes:
+        df_c = pd.DataFrame(clientes)
+        cliente_sel = st.selectbox("Cliente / Asociado:", df_c['Nombre'])
+        
+        with st.form("ingreso", clear_on_submit=True):
+            guia_in = st.text_input("ESCANEAR GUÍA DE ENTRADA:")
+            if st.form_submit_button("Registrar Ingreso"):
+                ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                registrar_fila("Ingresos", [guia_in, cliente_sel, ahora, "EN BODEGA"])
+                st.success(f"Guía {guia_in} registrada para {cliente_sel}")
