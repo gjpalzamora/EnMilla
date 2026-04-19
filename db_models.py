@@ -3,9 +3,24 @@ from sqlalchemy import create_engine, Column, Integer, String, DateTime, Foreign
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.sql import func
 
-# Configuración de Conexión
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://enlace_user:mi_contrasena@localhost:5432/enlaces360_db")
-engine = create_engine(DATABASE_URL)
+# MEJORA: Obtención robusta de la URL de la base de datos
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+# Si no detecta la URL, intentamos reconstruirla o lanzamos error claro
+if not DATABASE_URL:
+    # Esto ayuda a diagnosticar si falta la variable en Streamlit Cloud
+    raise ConnectionError("DATABASE_URL no encontrada. Configúrala en 'Secrets' de Streamlit.")
+
+# MEJORA: Soporte para dialectos modernos de PostgreSQL y prevención de desconexiones
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+engine = create_engine(
+    DATABASE_URL, 
+    pool_pre_ping=True,  # Verifica la conexión antes de usarla
+    pool_recycle=3600    # Reinicia conexiones viejas
+)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -70,4 +85,3 @@ def get_db():
 
 def create_tables():
     Base.metadata.create_all(bind=engine)
-    
