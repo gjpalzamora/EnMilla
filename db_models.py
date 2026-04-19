@@ -1,16 +1,13 @@
 import os
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean, Float
-from sqlalchemy.orm import sessionmaker, relationship, declarative_base, Session
+from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.sql import func
 
-# --- Configuración de la Base de Datos ---
+# Configuración de Conexión
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://enlace_user:mi_contrasena@localhost:5432/enlaces360_db")
-
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
-
-# --- MODELOS ---
 
 class ClientB2B(Base):
     __tablename__ = "clients_b2b"
@@ -18,7 +15,7 @@ class ClientB2B(Base):
     name = Column(String(255), unique=True, nullable=False)
     nit = Column(String(50), unique=True)
     packages = relationship("Package", back_populates="client")
-    products = relationship("Product", back_populates="client") # Añadido para evitar errores de relación
+    products = relationship("Product", back_populates="client")
 
 class Product(Base):
     __tablename__ = "products"
@@ -49,7 +46,6 @@ class Package(Base):
     delivery_attempts = Column(Integer, default=0)
     client_id = Column(Integer, ForeignKey("clients_b2b.id"))
     courier_id = Column(Integer, ForeignKey("couriers.id"), nullable=True)
-    
     client = relationship("ClientB2B", back_populates="packages")
     courier = relationship("Courier", back_populates="packages")
     logs = relationship("PackageLog", back_populates="package")
@@ -65,9 +61,6 @@ class PackageLog(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     package = relationship("Package", back_populates="logs")
 
-# --- COMPATIBILIDAD Y UTILIDADES ---
-
-# Añadimos Session aquí para que el import desde app.py no falle
 def get_db():
     db = SessionLocal()
     try:
@@ -77,3 +70,4 @@ def get_db():
 
 def create_tables():
     Base.metadata.create_all(bind=engine)
+    
