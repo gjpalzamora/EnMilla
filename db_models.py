@@ -9,7 +9,6 @@ if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
 if not DATABASE_URL:
     DATABASE_URL = "sqlite:///./enmilla_v2.db"
 
-# Configuramos pool_pre_ping para evitar conexiones muertas
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -34,7 +33,7 @@ class Courier(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
     document_id = Column(String(50), unique=True, nullable=False)
-    phone = Column(String(50), nullable=True) # Columna del error corregida
+    phone = Column(String(50), nullable=True)
     is_active = Column(Boolean, default=True)
     packages = relationship("Package", back_populates="courier")
 
@@ -56,14 +55,13 @@ class PackageLog(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
 def create_tables():
-    # Si hay error de estructura, este bloque intenta corregirlo añadiendo la columna faltante
     Base.metadata.create_all(bind=engine)
     with engine.connect() as conn:
         try:
             conn.execute(text("ALTER TABLE couriers ADD COLUMN phone VARCHAR(50)"))
             conn.commit()
-        except:
-            pass # Si ya existe, no hace nada
+        except Exception:
+            pass
 
 def get_db():
     db = SessionLocal()
