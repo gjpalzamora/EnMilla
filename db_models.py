@@ -55,13 +55,16 @@ class PackageLog(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
 def create_tables():
+    # Creamos las tablas si no existen
     Base.metadata.create_all(bind=engine)
+    
+    # ATAR CABO SUELTO: Forzar actualización de columnas para SQLite
     with engine.connect() as conn:
         try:
             conn.execute(text("ALTER TABLE couriers ADD COLUMN phone VARCHAR(50)"))
             conn.commit()
         except Exception:
-            pass
+            pass # Si ya existe, no falla
 
 def get_db():
     db = SessionLocal()
