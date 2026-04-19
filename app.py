@@ -1,68 +1,49 @@
 import streamlit as st
-import pandas as pd
-from sqlalchemy.orm import Session
-from db_models import engine, get_db, create_tables, Package, Courier
+from db_models import get_db, create_tables, Courier
 from logica_operativa import procesar_escaneo
 from admin_module import display_admin_module
 
-st.set_page_config(page_title="EnMilla Logistics", layout="wide")
+st.set_page_config(page_title="EnMilla Logistics", layout="wide", page_icon="📦")
 
-def play_sound(sound_type):
-    audio_url = "https://www.soundjay.com/buttons/sounds/button-37.mp3" if sound_type == "OK" else "https://www.soundjay.com/buttons/sounds/button-10.mp3"
-    st.components.v1.html(f'<audio autoplay><source src="{audio_url}"></audio>', height=0)
-
-# --- INICIALIZACIÓN CON MANEJO DE ERRORES ---
-db_active = False
+# Inicialización
 try:
-    db_gen = get_db()
-    db = next(db_gen)
-    create_tables() 
-    db_active = True
+    db = next(get_db())
+    create_tables()
 except Exception as e:
-    st.error(f"⚠️ Error de conexión a la base de datos: {str(e)}")
-    st.info("Asegúrate de que DATABASE_URL esté correctamente configurada en los Secrets de Streamlit.")
+    st.error(f"❌ Error crítico de base de datos: {e}")
     st.stop()
 
-if db_active:
-    st.sidebar.title("📦 EnMilla")
-    modulo = st.sidebar.radio("Módulos:", ["Administración", "Recepción", "Despacho", "Reportes"])
+st.sidebar.title("EnMilla v2.0")
+modulo = st.sidebar.radio("Ir a:", ["Administración", "Recepción (Ingreso)", "Despacho (Salida)"])
 
-    if modulo == "Administración":
-        display_admin_module(db)
+if modulo == "Administración":
+    display_admin_module(db)
 
-    elif modulo == "Recepción":
-        st.header("📥 Recepción de Paquetes")
-        guia = st.text_input("Escanear Guía:", key="recep_scan")
-        if guia:
-            res = procesar_escaneo(db, guia, "Admin", "INGRESO")
+elif modulo == "Recepción (Ingreso)":
+    st.header("📥 Recepción de Mercancía")
+    guia = st.text_input("Escanee el código de barras:", placeholder="Esperando escaneo...", key="scan_in")
+    if guia:
+        res = procesar_escaneo(db, guia, "Admin", "INGRESO")
+        if res["status"] == "OK":
+            st.success(f"✅ {res['message']}")
+            # Aquí se puede agregar st.balloons() o un sonido si lo deseas
+        else:
+            st.error(f"❌ {res['message']}")
+
+elif modulo == "Despacho (Salida)":
+    st.header("🚚 Salida a Ruta")
+    couriers = db.query(Courier).filter(Courier.is_active == True).all()
+    if couriers:
+        c_dict = {c.name: c.id for c in couriers}
+        sel_c = st.selectbox("Seleccione Mensajero:", options=list(c_dict.keys()))
+        guia_d = st.text_input("Escanee guía para despacho:", key="scan_out")
+        if guia_d:
+            res = procesar_escaneo(db, guia_d, "Admin", "DESPACHO", mensajero_id=c_dict[sel_c])
             if res["status"] == "OK":
-                st.success(res["message"])
-                play_sound("OK")
+                st.success(f"🚀 {res['message']} a {sel_c}")
             else:
-                st.error(res["message"])
-                play_sound("FAIL")
+                st.warning(f"⚠️ {res['message']}")
+    else:
+        st.warning("No hay mensajeros activos en el sistema.")
 
-    elif modulo == "Despacho":
-        st.header("🚚 Salida a Ruta")
-        try:
-            couriers = db.query(Courier).filter(Courier.is_active == True).all()
-            if not couriers:
-                st.warning("No hay mensajeros activos. Regístrelos en Administración.")
-            else:
-                c_dict = {c.name: c.id for c in couriers}
-                sel_c = st.selectbox("Mensajero:", options=list(c_dict.keys()))
-                guia_d = st.text_input("Escanear para despacho:", key="desp_scan")
-                if guia_d and sel_c:
-                    res = procesar_escaneo(db, guia_d, "Admin", "DESPACHO", mensajero_id=c_dict[sel_c])
-                    if res["status"] == "OK":
-                        st.success("Asignado correctamente")
-                        play_sound("OK")
-                    else:
-                        st.warning(res["message"])
-                        play_sound("FAIL")
-        except Exception as e:
-            st.error(f"Error al cargar mensajeros: {e}")
-
-    # Cierre limpio al final de la ejecución
-    db.close()
-    
+db.close()
