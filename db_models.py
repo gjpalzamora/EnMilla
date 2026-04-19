@@ -3,24 +3,15 @@ from sqlalchemy import create_engine, Column, Integer, String, DateTime, Foreign
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.sql import func
 
-# MEJORA: Obtención robusta de la URL de la base de datos
+# Configuración Maestra
 DATABASE_URL = os.environ.get("DATABASE_URL")
-
-# Si no detecta la URL, intentamos reconstruirla o lanzamos error claro
-if not DATABASE_URL:
-    # Esto ayuda a diagnosticar si falta la variable en Streamlit Cloud
-    raise ConnectionError("DATABASE_URL no encontrada. Configúrala en 'Secrets' de Streamlit.")
-
-# MEJORA: Soporte para dialectos modernos de PostgreSQL y prevención de desconexiones
-if DATABASE_URL.startswith("postgres://"):
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(
-    DATABASE_URL, 
-    pool_pre_ping=True,  # Verifica la conexión antes de usarla
-    pool_recycle=3600    # Reinicia conexiones viejas
-)
+if not DATABASE_URL:
+    DATABASE_URL = "sqlite:///./enmilla_local.db"
 
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -54,11 +45,10 @@ class Package(Base):
     __tablename__ = "packages"
     id = Column(Integer, primary_key=True, index=True)
     tracking_number = Column(String(100), unique=True, index=True, nullable=False)
-    recipient_name = Column(String(255))
-    address = Column(String(500))
-    phone = Column(String(100))
+    recipient_name = Column(String(255)) # Agregado para el Excel
+    address = Column(String(500))        # Agregado para el Excel
+    city = Column(String(100))           # Agregado para el Excel
     status = Column(String(50), default="PRE-CARGADO")
-    delivery_attempts = Column(Integer, default=0)
     client_id = Column(Integer, ForeignKey("clients_b2b.id"))
     courier_id = Column(Integer, ForeignKey("couriers.id"), nullable=True)
     client = relationship("ClientB2B", back_populates="packages")
@@ -70,9 +60,7 @@ class PackageLog(Base):
     id = Column(Integer, primary_key=True)
     package_id = Column(Integer, ForeignKey("packages.id"))
     action = Column(String(100)) 
-    courier_id = Column(Integer, ForeignKey("couriers.id"), nullable=True)
     operator_id = Column(String(100)) 
-    observation = Column(String(500))
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     package = relationship("Package", back_populates="logs")
 
