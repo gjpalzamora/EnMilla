@@ -1,74 +1,65 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy.orm import Session
-from db_models import ClientB2B, Courier, Product, Package
+from db_models import ClientB2B, Courier, Product
 
 def display_admin_module(db: Session):
-    st.header("⚙️ Panel de Administración")
-    tabs = st.tabs(["Mensajeros", "Clientes B2B", "📦 Carga Masiva"])
-    
-    with tabs[0]:
-        st.subheader("Registro de Mensajeros")
-        with st.form("form_courier", clear_on_submit=True):
-            name = st.text_input("Nombre Completo")
-            doc_id = st.text_input("Cédula")
-            phone = st.text_input("Teléfono")
+    st.header("⚙️ Configuración Maestra")
+    tabs = st.tabs(["Mensajeros", "Clientes", "Productos", "🗂️ Base de Datos"])
+
+    with tabs[0]: # Mensajeros
+        with st.form("add_courier", clear_on_submit=True):
+            n = st.text_input("Nombre Completo")
+            c = st.text_input("Cédula")
+            p = st.text_input("Teléfono")
             if st.form_submit_button("Registrar"):
-                if name and doc_id:
-                    try:
-                        db.add(Courier(name=name, document_id=doc_id, phone=phone))
-                        db.commit()
-                        st.success(f"Mensajero {name} registrado.")
-                    except:
-                        db.rollback()
-                        st.error("Error: Cédula duplicada.")
-
-    with tabs[1]:
-        st.subheader("Clientes B2B")
-        with st.form("form_client", clear_on_submit=True):
-            c_name = st.text_input("Nombre Empresa")
-            nit = st.text_input("NIT")
-            if st.form_submit_button("Guardar"):
-                db.add(ClientB2B(name=c_name, nit=nit))
+                db.add(Courier(name=n, document_id=c, phone=p))
                 db.commit()
-                st.success("Cliente creado.")
+                st.success(f"Mensajero {n} registrado.")
 
-    with tabs[2]:
-        st.subheader("Importar Guías desde Excel")
-        clients = db.query(ClientB2B).all()
-        if not clients:
+    with tabs[1]: # Clientes
+        with st.form("add_client", clear_on_submit=True):
+            cn = st.text_input("Empresa")
+            nit = st.text_input("NIT")
+            if st.form_submit_button("Crear Cliente"):
+                db.add(ClientB2B(name=cn, nit=nit))
+                db.commit()
+                st.success("Cliente guardado.")
+
+    with tabs[2]: # Productos
+        clientes = db.query(ClientB2B).all()
+        if not clientes:
             st.warning("Cree un cliente primero.")
         else:
-            client_map = {c.name: c.id for c in clients}
-            selected_client = st.selectbox("Asignar carga a:", options=list(client_map.keys()))
-            
-            uploaded_file = st.file_uploader("Subir Excel (.xlsx)", type=["xlsx"])
-            if uploaded_file:
-                df = pd.read_excel(uploaded_file)
-                st.write("Vista previa de los datos:")
-                st.dataframe(df.head(5))
-                
-                # Mapeo de columnas (puedes ajustar los nombres según tu archivo real)
-                col_guia = st.selectbox("Columna de Guía/Tracking:", df.columns)
-                col_nombre = st.selectbox("Columna de Destinatario:", df.columns)
-                
-                if st.button("🚀 Procesar e Importar"):
-                    count = 0
-                    errors = 0
-                    for index, row in df.iterrows():
-                        try:
-                            # Evitamos duplicados
-                            exists = db.query(Package).filter(Package.tracking_number == str(row[col_guia])).first()
-                            if not exists:
-                                new_pkg = Package(
-                                    tracking_number=str(row[col_guia]),
-                                    recipient_name=str(row[col_nombre]),
-                                    client_id=client_map[selected_client],
-                                    status="PRE-CARGADO"
-                                )
-                                db.add(new_pkg)
-                                count += 1
-                        except:
-                            errors += 1
+            cli_map = {cli.name: cli.id for cli in clientes}
+            with st.form("add_product", clear_on_submit=True):
+                pn = st.text_input("Nombre del Producto (ej: Sobre, Caja)")
+                target_cli = st.selectbox("Asignar a:", options=list(cli_map.keys()))
+                if st.form_submit_button("Vincular Producto"):
+                    db.add(Product(name=pn, client_id=cli_map[target_cli]))
                     db.commit()
-                    st.success(f"Importación terminada: {count} guías nuevas cargadas. {errors} errores.")
+                    st.success("Producto vinculado.")
+
+    with tabs[3]: # Visualización y Eliminación
+        st.subheader("Control de Registros")
+        sub_tab = st.selectbox("Ver tabla de:", ["Mensajeros", "Clientes", "Productos"])
+        
+        if sub_tab == "Mensajeros":
+            items = db.query(Courier).all()
+            if items:
+                df = pd.DataFrame([{"ID": i.id, "Nombre": i.name, "Documento": i.document_id} for i in items])
+                st.table(df)
+                to_del = st.number_input("ID a eliminar", min_value=0, step=1)
+                if st.button("Eliminar Mensajero"):
+                    item = db.query(Courier).get(to_del)
+                    if item:
+                        db.delete(item)
+                        db.commit()
+                        st.rerun()
+
+        elif sub_tab == "Clientes":
+            items = db.query(ClientB2B).all()
+            if items:
+                df = pd.DataFrame([{"ID": i.id, "Empresa": i.name, "NIT": i.nit} for i in items])
+                st.table(df)
+                # Lógica similar para eliminar...
