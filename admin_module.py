@@ -4,56 +4,43 @@ from sqlalchemy.orm import Session
 from db_models import ClientB2B, Courier, Product
 
 def display_admin_module(db: Session):
-    st.header("⚙️ Administración EnMilla")
-    t_reg, t_db = st.tabs(["📝 Registro", "📋 Base de Datos"])
+    st.header("⚙️ Configuración EnMilla")
+    t1, t2 = st.tabs(["📝 Registro", "📋 Ver Datos"])
 
-    with t_reg:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("Mensajero")
+    with t1:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.subheader("Mensajeros")
             with st.form("f_courier", clear_on_submit=True):
-                n = st.text_input("Nombre")
-                c = st.text_input("Cédula")
-                p = st.text_input("Teléfono")
-                if st.form_submit_button("Guardar"):
-                    db.add(Courier(name=n, document_id=c, phone=p))
-                    db.commit()
-                    st.success("Mensajero creado.")
-        
-        with col2:
-            st.subheader("Cliente")
+                nom = st.text_input("Nombre")
+                ced = st.text_input("Cédula")
+                tel = st.text_input("Celular")
+                if st.form_submit_button("Registrar"):
+                    if nom and ced:
+                        db.add(Courier(name=nom, document_id=ced, phone=tel))
+                        db.commit()
+                        st.success(f"Registrado: {nom}")
+        with c2:
+            st.subheader("Clientes")
             with st.form("f_client", clear_on_submit=True):
-                cn = st.text_input("Empresa")
+                emp = st.text_input("Empresa")
                 nit = st.text_input("NIT")
                 if st.form_submit_button("Crear"):
-                    db.add(ClientB2B(name=cn, nit=nit))
+                    db.add(ClientB2B(name=emp, nit=nit))
                     db.commit()
-                    st.success("Cliente creado.")
+                    st.success("Cliente Creado")
 
-        st.divider()
-        st.subheader("Producto")
-        clientes = db.query(ClientB2B).all()
-        if clientes:
-            c_map = {cli.name: cli.id for cli in clientes}
-            with st.form("f_prod", clear_on_submit=True):
-                pn = st.text_input("Producto")
-                cl = st.selectbox("Asignar a:", options=list(c_map.keys()))
-                if st.form_submit_button("Vincular"):
-                    db.add(Product(name=pn, client_id=c_map[cl]))
-                    db.commit()
-                    st.success("Vinculado.")
-
-    with t_db:
-        ver = st.radio("Tabla:", ["Mensajeros", "Clientes", "Productos"], horizontal=True)
+    with t2:
+        ver = st.radio("Mostrar:", ["Mensajeros", "Clientes", "Productos"], horizontal=True)
         try:
             if ver == "Mensajeros":
-                items = db.query(Courier).all()
-                if items: st.table(pd.DataFrame([{"ID": i.id, "Nombre": i.name, "Cédula": i.document_id, "Tel": i.phone} for i in items]))
+                res = db.query(Courier).all()
+                if res: st.dataframe(pd.DataFrame([{"ID": r.id, "Nombre": r.name, "ID": r.document_id, "Tel": r.phone} for r in res]))
             elif ver == "Clientes":
-                items = db.query(ClientB2B).all()
-                if items: st.table(pd.DataFrame([{"ID": i.id, "Empresa": i.name, "NIT": i.nit} for i in items]))
+                res = db.query(ClientB2B).all()
+                if res: st.dataframe(pd.DataFrame([{"ID": r.id, "Empresa": r.name, "NIT": r.nit} for r in res]))
             elif ver == "Productos":
-                items = db.query(Product).all()
-                if items: st.table(pd.DataFrame([{"ID": i.id, "Producto": i.name, "Dueño": i.client.name} for i in items]))
+                res = db.query(Product).all()
+                if res: st.dataframe(pd.DataFrame([{"ID": r.id, "Producto": r.name, "Dueño": r.client.name} for r in res]))
         except Exception:
-            st.warning("Actualizando estructura... Intente de nuevo en un momento.")
+            st.error("Error al leer la base de datos. Por favor, reinicie la aplicación.")
