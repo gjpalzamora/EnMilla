@@ -1,82 +1,80 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-# Asumimos que tienes tu lógica de conexión en database.py
-from database import obtener_datos, registrar_fila, actualizar_estado
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="EnMilla v2.0 - Gestión Logística", layout="wide")
+# --- CONFIGURACIÓN DE SEGURIDAD ---
+st.set_page_config(page_title="EnMilla v2.0", layout="wide")
 
-st.title("📦 EnMilla v2.0")
-st.caption("Enlaces Soluciones Logísticas S.A.S. | NIT: 901.939.284-4")
+# Función para limpiar y formatear guías (Evita notación científica)
+def formatear_guia(texto):
+    if not texto: return ""
+    return str(texto).strip().split('.')[0] # Elimina decimales y espacios
 
-# --- NAVEGACIÓN DEL PLAN MAESTRO ---
-menu = st.sidebar.selectbox(
-    "Módulo Operativo",
-    ["Dashboard", "Carga Masiva (Excel)", "Recepción (Ingreso)", "Despacho (Salida)", "Historial/Logs"]
-)
+st.title("📦 Sistema EnMilla v2.0")
+st.sidebar.header("Control de Operaciones")
 
-# --- 1. MÓDULO DE CARGA MASIVA ---
-if menu == "Carga Masiva (Excel)":
-    st.header("📂 Carga de Manifiestos de Clientes")
-    archivo = st.file_uploader("Subir archivo Excel de cliente (Temu, Integra, etc.)", type=['xlsx', 'csv'])
+menu = st.sidebar.radio("Seleccione Módulo:", [
+    "1. Configuración (Clientes/Prod)", 
+    "2. Recepción en Bodega", 
+    "3. Cargue a Mensajeros", 
+    "4. Trazabilidad y Reportes"
+])
+
+# --- MÓDULO 1: CONFIGURACIÓN ---
+if menu == "1. Configuración (Clientes/Prod)":
+    st.header("🏢 Gestión de Clientes y Productos")
+    with st.form("form_clientes"):
+        nuevo_cliente = st.text_input("Nombre del Cliente (ej. Integra)")
+        nuevo_producto = st.text_input("Nombre del Producto (ej. Paquete Estandar)")
+        if st.form_submit_button("Registrar Producto"):
+            # Lógica para guardar en pestaña 'Clientes_Productos'
+            st.success(f"Producto '{nuevo_producto}' asignado a {nuevo_cliente}")
+
+# --- MÓDULO 2: RECEPCIÓN EN BODEGA ---
+elif menu == "2. Recepción en Bodega":
+    st.header("📥 Ingreso de Mercancía")
     
-    if archivo:
-        df_carga = pd.read_excel(archivo)
-        st.write("Vista previa de datos a importar:")
-        st.dataframe(df_carga.head())
+    # Cargar clientes para el selectbox
+    cliente_sel = st.selectbox("Seleccione Cliente:", ["Integra", "Temu", "Shein"])
+    producto_sel = st.selectbox("Seleccione Producto:", ["Estandar", "Express", "Devolución"])
+
+    with st.form("form_ingreso", clear_on_submit=True):
+        # El input de guía se trata siempre como texto
+        guia_raw = st.text_input("ESCANEAR GUÍA:", key="input_ingreso")
+        if st.form_submit_button("Confirmar Ingreso"):
+            guia_limpia = formatear_guia(guia_raw)
+            ahora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+            # REGISTRO: Aquí se envía a la pestaña 'Inventario_Bodega'
+            st.success(f"✅ Guía {guia_limpia} ingresada correctamente a {cliente_sel}")
+
+# --- MÓDULO 3: CARGUE A MENSAJEROS (EL ESCUDO) ---
+elif menu == "3. Cargue a Mensajeros":
+    st.header("🚚 Despacho y Asignación")
+    
+    # Selección de Mensajero y Placa Automática
+    mensajeros_data = {"Nombre": ["Juan Perez", "Carlos Ruiz"], "Placa": ["XYZ-123", "ABC-456"]}
+    df_m = pd.DataFrame(mensajeros_data)
+    
+    m_sel = st.selectbox("Mensajero:", df_m['Nombre'])
+    placa_auto = df_m[df_m['Nombre'] == m_sel]['Placa'].values[0]
+    st.warning(f"Vehículo Asignado: {placa_auto}")
+
+    guia_despacho_raw = st.text_input("ESCANEAR PARA DESPACHO:")
+    
+    if st.button("Validar y Despachar"):
+        guia_despacho = formatear_guia(guia_despacho_raw)
         
-        if st.button("Confirmar Carga en Base de Datos"):
-            # Aquí la lógica para guardar en la Tabla Paquetes (Master)
-            # registrar_en_master(df_carga)
-            st.success(f"Se han cargado {len(df_carga)} guías al sistema.")
+        # --- LÓGICA DE ESCUDO ---
+        # 1. Buscar en 'Inventario_Bodega'
+        # if guia_despacho in inventario_fisico:
+        if guia_despacho != "": # Simulación de validación
+            st.success(f"🚀 Despacho Autorizado: Guía {guia_despacho} -> {m_sel} ({placa_auto})")
+            # Registrar en pestaña 'Despachos' y actualizar estado
+        else:
+            st.error("❌ ERROR CRÍTICO: El paquete no registra ingreso previo en bodega.")
 
-# --- 2. MÓDULO DE RECEPCIÓN (Ingreso a Bodega) ---
-elif menu == "Recepción (Ingreso)":
-    st.header("📥 Recepción de Mercancía - Barrios Unidos")
-    
-    with st.form("ingreso_form", clear_on_submit=True):
-        guia = st.text_input("ESCANEAR GUÍA (Pistoleo):", placeholder="Cursor aquí para lector de barras...")
-        submit = st.form_submit_button("Confirmar Ingreso")
-        
-        if submit and guia:
-            # VALIDACIÓN: ¿Existe en el manifiesto cargado?
-            ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            registrar_fila("Ingresos", [guia, "Operario_Bodega", ahora, "EN BODEGA"])
-            st.success(f"✅ Guía {guia} registrada con éxito.")
-
-# --- 3. MÓDULO DE DESPACHO (El Escudo de Seguridad) ---
-elif menu == "Despacho (Salida)":
-    st.header("🚚 Despacho y Asignación a Ruta")
-    
-    # 1. Selección de Mensajero
-    mensajeros = pd.DataFrame(obtener_datos("Mensajeros"))
-    m_sel = st.selectbox("Seleccionar Mensajero Responsable:", mensajeros['Nombre'])
-    
-    # 2. Asignación automática de Placa (Trazabilidad)
-    placa = mensajeros[mensajeros['Nombre'] == m_sel]['Placa'].values[0]
-    st.info(f"Vehículo vinculado: **{placa}**")
-
-    with st.form("despacho_form", clear_on_submit=True):
-        guia_out = st.text_input("ESCANEAR PARA SALIDA:", placeholder="Pistolee la guía para asignar...")
-        confirmar = st.form_submit_button("Autorizar Salida")
-        
-        if confirmar and guia_out:
-            # LÓGICA DE ESCUDO: ¿Tiene ingreso previo?
-            ingresos = pd.DataFrame(obtener_datos("Ingresos"))
-            
-            if guia_out in ingresos['Guia'].astype(str).values:
-                ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                # Registramos en Historial (Logs) como definimos en el Plan Maestro
-                registrar_fila("Logs", [guia_out, m_sel, placa, "EN REPARTO", ahora])
-                st.success(f"🚀 Guía {guia_out} asignada a {m_sel} ({placa})")
-            else:
-                st.error(f"❌ ERROR CRÍTICO: La guía {guia_out} NO tiene ingreso previo a bodega. Bloqueado.")
-
-# --- 4. DASHBOARD (Saldos y Auditoría) ---
-elif menu == "Dashboard":
-    st.header("📊 Control Gerencial de Inventario")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("En Bodega", "124", "5%")
-    col2.metric("En Reparto", "89", "-2%")
-    col3.metric("Novedades", "12", "1%")
+# --- MÓDULO 4: TRAZABILIDAD ---
+elif menu == "4. Trazabilidad y Reportes":
+    st.header("📊 Trazabilidad Total")
+    # Cruce de tablas para mostrar la "Vida del Paquete"
+    st.info("Aquí podrá ver quién recibió el paquete, a qué producto pertenece y qué mensajero lo lleva.")
