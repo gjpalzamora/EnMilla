@@ -1,27 +1,30 @@
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+import pandas as pd
+from datetime import datetime
+# Importamos la conexión de Streamlit a Google Sheets
+from streamlit_gsheets import GSheetsConnection
 import streamlit as st
 
-def conectar_hoja():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    # Usamos el nombre exacto que pusimos en los Secrets
-    creds_dict = st.secrets["gcp_service_account"]
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    client = gspread.authorize(creds)
-    # Verifique que su hoja en Drive se llame exactamente así
-    return client.open("EnMilla_DB")
+def conectar_db():
+    # Establece la conexión usando el ID de su Spreadsheet
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    return conn
 
-def obtener_datos(pestaña):
-    try:
-        sheet = conectar_hoja().worksheet(pestaña)
-        return sheet.get_all_records()
-    except:
-        return []
+def obtener_datos(nombre_pestana):
+    """Trae la información de las tablas: Mensajeros, Ingresos o Logs"""
+    conn = conectar_db()
+    # Leemos la pestaña específica de su base de datos
+    df = conn.read(worksheet=nombre_pestana)
+    return df
 
-def registrar_fila(pestaña, fila):
-    try:
-        sheet = conectar_hoja().worksheet(pestaña)
-        sheet.append_row(fila)
-        return True
-    except:
-        return False
+def registrar_fila(nombre_pestana, lista_datos):
+    """Registra un nuevo pistoleo (Ingreso o Despacho)"""
+    conn = conectar_db()
+    # Traemos los datos actuales
+    df_actual = conn.read(worksheet=nombre_pestana)
+    
+    # Creamos la nueva fila con la estructura del Plan Maestro
+    nueva_fila = pd.DataFrame([lista_datos], columns=df_actual.columns)
+    
+    # Concatenamos y actualizamos la base de datos en la nube
+    df_final = pd.concat([df_actual, nueva_fila], ignore_index=True)
+    conn.update(worksheet=nombre_pestana, data=df_final)
