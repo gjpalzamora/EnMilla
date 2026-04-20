@@ -1,56 +1,61 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-# Importamos las funciones con los nombres EXACTOS que definimos arriba
 from database import obtener_datos, registrar_fila
 
-# Configuración de página (Esto debe ir de primero)
-st.set_page_config(page_title="EnMilla Logistics", layout="wide")
+st.title("Sistema de Gestión de Inventarios - En enlaces")
+st.caption("NIT: 901.939.284-4 | Sede Barrios Unidos")
 
-# Identidad Corporativa
-st.sidebar.title("🚚 EnMilla v2.0")
-st.sidebar.markdown("**Enlaces Soluciones Logísticas SAS**")
-st.sidebar.write("NIT: 901.939.284-4")
+# --- ELEMENTO 1: RESUMEN DE INVENTARIO ACTUAL ---
+st.subheader("📊 Estado del Inventario")
+ingresos = pd.DataFrame(obtener_datos("Ingresos"))
+despachos = pd.DataFrame(obtener_datos("Despacho"))
 
-menu = st.sidebar.radio("Operación", ["Ingreso (Bodega)", "Despacho (Ruta)"])
+if not ingresos.empty:
+    guias_en_bodega = len(ingresos) - len(despachos)
+    col1, col2 = st.columns(2)
+    col1.metric("Total Ingresado", len(ingresos))
+    col2.metric("Stock Actual (En Bodega)", guias_en_bodega)
+else:
+    st.info("Inventario vacío. Inicie recepciones.")
 
-# --- LÓGICA DE INGRESO ---
-if menu == "Ingreso (Bodega)":
-    st.header("📥 Registro de Ingreso")
-    # Intentar traer clientes de la pestaña 'Clientes'
-    clientes = obtener_datos("Clientes")
-    if clientes:
-        df_c = pd.DataFrame(clientes)
-        cliente_sel = st.selectbox("Seleccione Cliente:", df_c['Nombre'])
+# --- NAVEGACIÓN ---
+menu = st.radio("Acción de Inventario:", ["📥 Recepción (Entrada)", "🚚 Despacho (Salida)"], horizontal=True)
+
+# --- ELEMENTO 2: MÓDULO DE RECEPCIÓN ---
+if menu == "📥 Recepción (Entrada)":
+    clientes = pd.DataFrame(obtener_datos("Clientes"))
+    if not clientes.empty:
+        c_sel = st.selectbox("Cliente / Asociado Remitente:", clientes['Nombre'])
         
         with st.form("form_ingreso", clear_on_submit=True):
-            guia = st.text_input("ESCANEAR GUÍA:")
-            if st.form_submit_button("Registrar Entrada"):
+            # El cursor debe estar aquí para el lector de barras
+            guia_in = st.text_input("ESCANEAR GUÍA DE ENTRADA:")
+            if st.form_submit_button("Confirmar Entrada"):
                 ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                exito = registrar_fila("Ingresos", [guia, cliente_sel, ahora, "EN BODEGA"])
-                if exito:
-                    st.success(f"✅ Guía {guia} registrada")
-                else:
-                    st.error("Error al guardar en Google Sheets")
-    else:
-        st.warning("⚠️ No se encontraron clientes en la hoja 'Clientes' de Google Sheets.")
+                # Estructura: Guia, Cliente, Fecha, Estado
+                registrar_fila("Ingresos", [guia_in, c_sel, ahora, "EN BODEGA"])
+                st.success(f"Registrado: Guía {guia_in} en inventario.")
+                st.rerun()
 
-# --- LÓGICA DE DESPACHO ---
-elif menu == "Despacho (Ruta)":
-    st.header("🚚 Salida de Mercancía")
-    mensajeros = obtener_datos("Mensajeros")
-    if mensajeros:
-        df_m = pd.DataFrame(mensajeros)
-        m_sel = st.selectbox("Asignar a:", df_m['Nombre'])
+# --- ELEMENTO 3: MÓDULO DE DESPACHO ---
+elif menu == "🚚 Despacho (Salida)":
+    mensajeros = pd.DataFrame(obtener_datos("Mensajeros"))
+    if not mensajeros.empty:
+        m_sel = st.selectbox("Asignar a Mensajero:", mensajeros['Nombre'])
+        # ELEMENTO MECÁNICO: Traer placa automáticamente
+        placa = mensajeros[mensajeros['Nombre'] == m_sel]['Placa'].values[0]
+        st.write(f"Vehículo asignado: **{placa}**")
         
         with st.form("form_despacho", clear_on_submit=True):
             guia_out = st.text_input("ESCANEAR GUÍA PARA SALIDA:")
-            if st.form_submit_button("Confirmar Despacho"):
-                ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                # Buscamos la placa del mensajero seleccionado
-                placa = df_m[df_m['Nombre'] == m_sel]['Placa'].values[0]
-                exito = registrar_fila("Despacho", [guia_out, m_sel, placa, ahora, "EN RUTA"])
-                if exito:
-                    st.success(f"🚀 Guía {guia_out} en ruta con {m_sel}")
-    else:
-        st.warning("⚠️ No hay mensajeros en la hoja 'Mensajeros'.")
+            if st.form_submit_button("Confirmar Salida"):
+                # VALIDACIÓN: ¿Está la guía en inventario de entrada?
+                if not ingresos.empty and guia_out in ingresos['Guia'].astype(str).values:
+                    ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    # Estructura: Guia, Mensajero, Placa, Fecha, Estado
+                    registrar_fila("Despacho", [guia_out, m_sel, placa, ahora, "EN RUTA"])
+                    st.success(f"Despachado: Guía {guia_out} salió de inventario.")
+                else:
+                    st.error(f"⚠️ ERROR: La guía {guia_out} no existe en el inventario de entrada.")
+                st.rerun()
